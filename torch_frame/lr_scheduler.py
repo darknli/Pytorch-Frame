@@ -1,5 +1,4 @@
-from typing import Optional
-
+from typing import Optional, List
 from torch.optim.lr_scheduler import _LRScheduler
 
 
@@ -97,7 +96,7 @@ class LRWarmupScheduler(_LRScheduler):
         else:
             return self.warmup_factor ** (1 - alpha)
 
-    def get_lr(self) -> float:
+    def get_lr(self) -> List[float]:
         warmup_factor = self._get_warmup_factor()
         if self._reach_epoch_end():
             # `self.scheduler.last_epoch` is really the last epoch
