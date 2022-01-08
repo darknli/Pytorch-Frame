@@ -1,6 +1,6 @@
-from .. import Trainer, MetricStorage
-import numpy as np
-np.random.random
+# from ..trainer import Trainer, MetricStorage
+# import numpy as np
+
 
 class HookBase:
     """
@@ -30,7 +30,7 @@ class HookBase:
     """
 
     # A weak reference to the trainer object. Set by the trainer when the hook is registered.
-    trainer: "Trainer" = None
+    trainer: "torch_frame.Trainer" = None
 
     def before_train(self) -> None:
         """整体训练前调用"""
@@ -69,7 +69,7 @@ class HookBase:
         return self.__class__.__name__
 
     @property
-    def metric_storage(self) -> "MetricStorage":
+    def metric_storage(self) -> "torch_frame.MetricStorage":
         return self.trainer.metric_storage
 
     def log(self, *args, **kwargs) -> None:

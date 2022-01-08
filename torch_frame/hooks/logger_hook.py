@@ -14,18 +14,24 @@ logger = logging.getLogger(__name__)
 class LoggerHook(HookBase):
     """写入评估指标到控制台和tensorboard"""
 
-    def __init__(self, period: int = 50, tb_log_dir: str = "log_dir", **kwargs) -> None:
+    def __init__(self, period: int = 50, tb_log_dir: str = "log_dir", mode: str = "train", **kwargs) -> None:
         """
         Parameters
         ----------
         period : int, default 50. 写入的周期
         tb_log_dir : str, default "log_dir".tensorboard的根目录
+        mode : str, default `train`
+            logger模式, 可选有 (`train`, `valid`, `test`)
         kwargs : torch.utils.tensorboard.SummaryWriter的其他参数
         """
         self._period = period
         self._tb_writer = SummaryWriter(tb_log_dir, **kwargs)
         # metric name -> the latest iteration written to tensorboard file
         self._last_write: Dict[str, int] = {}
+
+        if mode not in ("train", "valid", "test"):
+            logger.warning(f"LoggerHook的模式一般从(train, valid, test)中选择, 而不是{mode}")
+        self.mode = mode
 
     def before_train(self) -> None:
         self._train_start_time = time.perf_counter()
@@ -35,16 +41,15 @@ class LoggerHook(HookBase):
         total_train_time = time.perf_counter() - self._train_start_time
         total_hook_time = total_train_time - self.metric_storage["iter_time"].global_sum
         logger.info(
-            "Total training time: {} ({} on hooks)".format(
+            "Total {} time: {} ({} on hooks)".format(
+                self.mode,
                 str(datetime.timedelta(seconds=int(total_train_time))),
                 str(datetime.timedelta(seconds=int(total_hook_time))),
             )
         )
 
     def after_epoch(self) -> None:
-        # Some hooks maybe generate logs in after_epoch().
-        # When LoggerHook is the last hook, calling _write_tensorboard()
-        # at every after_epoch() can avoid missing logs.
+        self._write_console()
         self._write_tensorboard()
 
     def _write_console(self) -> None:
@@ -94,5 +99,5 @@ class LoggerHook(HookBase):
 
     def after_iter(self) -> None:
         if self.every_n_inner_iters(self._period):
-            self._write_console()
+            # self._write_console()
             self._write_tensorboard()

@@ -48,3 +48,18 @@ class HistoryBuffer:
     @property
     def global_sum(self) -> float:
         return self._sum
+
+    def __le__(self, other):
+        return self.avg <= other
+
+    def __lt__(self, other):
+        return self.avg < other
+
+    def __ge__(self, other):
+        return self.avg >= other
+
+    def __gt__(self, other):
+        return self.avg > other
+
+    def __str__(self):
+        return str(self.avg)

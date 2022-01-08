@@ -25,19 +25,19 @@ class _ColorfulFormatter(logging.Formatter):
 def setup_logger(
     name: Optional[str] = None,
     output: Optional[str] = None,
-    log_level: int = logging.DEBUG,
+    console_log_level: int = logging.INFO,
+    file_log_level: int = logging.INFO,
     rank: int = 0,
     color: bool = True,
 ) -> logging.Logger:
-    """Initialize the logger.
+    """
+    初始化 logger
 
-    If the logger has not been initialized, this method will initialize the
-    logger by adding one or two handlers, otherwise the initialized logger will
-    be directly returned. During initialization, only the logger of the master process
-    may add handlers. A :class:`StreamHandler` will always be added. If ``output`` is specified,
-    a :class:`FileHandler` will also be added.
+    如果logger没被初始化, 这个函数会使用1~2个handlers来初始化logger。否则这个已经初始化过的logger会直接被返回。
+    在初始化时只有主程序的logger会添加handlers，以:class:`StreamHandler`的形式添加。
+    如果output被赋值, :class:`FileHandler` 也会被添加
 
-    Here are some common uses. We suppose the project structure is as follows::
+    这里是常用的用法. 我们假设文件结构如下::
 
         project
         ├── module1
@@ -69,24 +69,34 @@ def setup_logger(
         >>> setup_logger(name="project.module1")
         >>> setup_logger(name="project.module2")
 
-    Args:
-        name (str): Logger name. Defaults to None to setup root logger.
-        output (str): A file name or a directory to save log. If None, will not save
-            log file. If ends with ``.txt`` or ``.log``, assumed to be a file name. Otherwise, logs
-            will be saved to ``output/log.txt``. Defaults to None.
-        log_level (int): Verbosity level of the logger. Defaults to ``logging.DEBUG``.
-        rank (int): Process rank in the distributed training. Defaults to 0.
-        color (bool): If True, color the output. Defaults to True.
+    Parameters
+    ----------
+    name : str, default None
+        Logger 名字。
+    output : str, default None
+        一个保存log的文件名或目录名
+        * None: 不会保存log到文件
+        * 后缀带.txt或.log : 将其设置成文件名
+        * other : 文件名变为 output/log.txt
+    console_log_level : int, default logging.INFO
+        logger输出到控制台/终端的等级
+    file_log_level : int, default logging.INFO
+        logger输出到文件的等级
+    rank : int, default 0
+        分布式训练中进程等级
+    color : bool, default True
+        如果是True，logger将会有颜色
 
-    Returns:
-        logging.Logger: A initialized logger.
+    Returns
+    -------
+        logging.Logger: 一个已初始化的logger
     """
     if name in logger_initialized:
         return logger_initialized[name]
 
     # get root logger if name is None
     logger = logging.getLogger(name)
-    logger.setLevel(log_level)
+    logger.setLevel(console_log_level)
     # the messages of this logger are not propagated to its parent
     logger.propagate = False
 
@@ -97,7 +107,7 @@ def setup_logger(
     # stdout and file logging: master only
     if rank == 0:
         ch = logging.StreamHandler(stream=sys.stdout)
-        ch.setLevel(log_level)
+        ch.setLevel(console_log_level)
         if color:
             formatter = _ColorfulFormatter(
                 colored("[%(asctime)s %(name)s]: ", "green") + "%(message)s",
@@ -119,7 +129,7 @@ def setup_logger(
             os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
 
             fh = logging.FileHandler(filename)
-            fh.setLevel(log_level)
+            fh.setLevel(file_log_level)
             fh.setFormatter(plain_formatter)
             logger.addHandler(fh)
 

@@ -4,7 +4,7 @@ import os.path as osp
 import time
 import weakref
 from typing import Any, Dict, List, Optional, Tuple
-
+from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -20,6 +20,7 @@ from .lr_scheduler import LRWarmupScheduler
 from .history_buffer import HistoryBuffer
 from .misc import symlink
 
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -50,14 +51,12 @@ class Trainer:
             data_loader: DataLoader,
             max_epochs: int,
             work_dir: str = "work_dir",
-            max_num_checkpoints: int = None,
-            checkpoint_period: int = 1,
-            log_period: int = 50,
             clip_grad_norm: float = 0.0,
             enable_amp=False,
             warmup_method: Optional[str] = None,
             warmup_iters: int = 1000,
             warmup_factor: float = 0.001,
+            hooks: Optional[List[HookBase]] = None
     ):
         """
         初始化
@@ -70,12 +69,6 @@ class Trainer:
         data_loader : torch.utils.data.DataLoader, 数据生成器
         max_epochs : int, 训练的总轮数
         work_dir : str, 保存模型和日志的根目录地址
-        max_num_checkpoints : int, default None
-            保存最大模型的最大个数
-            * None : 保存全部模型
-            * int : 保存取值个数的模型
-        checkpoint_period : int, default 1, 保存模型的周期（epoch为单位）
-        log_period : int, default 50, log的周期（iter为单位）
         clip_grad_norm : float, default 0.0
             梯度裁剪的设置, 如果置为小于等于0, 则不作梯度裁剪
         enable_amp : bool, 使用混合精度
@@ -88,7 +81,11 @@ class Trainer:
         warmup_iters : int, default 1000, warmup最后的iter数
         warmup_factor : float, default 0.001
             warmup初始学习率 = warmup_factor * initial_lr
+        hooks : List[HookBase], default None.
+            hooks, 保存模型、输出评估指标、loss等用
         """
+        logger.setLevel(logging.INFO)
+
         self.model = model
         self.optimizer = optimizer
         # convert epoch-based scheduler to iteration-based scheduler
@@ -100,25 +97,25 @@ class Trainer:
         self.metric_storage = MetricStorage()
 
         # counters
-        self.inner_iter: int  # [0, epoch_len - 1]
-        self.epoch: int  # [0, max_epochs - 1]
+        self.inner_iter: int = -1  # [0, epoch_len - 1]
+        self.epoch: int = -1  # [0, max_epochs - 1]
         self.start_epoch = 0  # [0, max_epochs - 1]
         self.max_epochs = max_epochs
 
         self._hooks: List[HookBase] = []
         self._data_iter = iter(data_loader)
-        self._max_num_checkpoints = max_num_checkpoints
-        self._checkpoint_period = checkpoint_period
-        self._log_period = log_period
         self._clip_grad_norm = clip_grad_norm
         self._enable_amp = enable_amp
-
-        self.register_hooks(self._build_default_hooks())
-        logger.info(f"Registered default hooks: {self.registered_hook_names}")
 
         if self._enable_amp:
             logger.info("自动混合精度 (AMP) 训练")
             self._grad_scaler = GradScaler()
+
+        if hooks is None:
+            self.register_hooks(self._build_default_hooks())
+        else:
+            self.register_hooks(hooks)
+        logger.info(f"Registered default hooks: {self.registered_hook_names}")
 
     @property
     def lr(self) -> float:
@@ -169,19 +166,38 @@ class Trainer:
         """更新评估指标"""
         self.metric_storage.update(*args, **kwargs)
 
-    def _prepare_for_training(self) -> None:
+    def _prepare_for_training(self,
+                              console_log_level: int = 2,
+                              file_log_level: int = 2) -> None:
+        """
+        训练前的配置工作
+        Parameters
+        ----------
+        console_log_level : int, default 2
+             输出到屏幕的log等级, 可选范围是0-5, 它们对应的关系分别为：
+             * 5: FATAL
+             * 4: ERROR
+             * 3: WARNING
+             * 2: INFO
+             * 1: DEBUG
+             * 0: NOTSET
+        file_log_level : int, default 2
+             输出到文件里的log等级, 其他方面同console_log_level参数
+        """
         # setup the root logger of the `cpu` library to show
         # the log messages generated from this library
-        setup_logger("cpu", output=self.log_file)
+        assert console_log_level in (0, 1, 2, 3, 4, 5), f"console_log_level必须在0~5之间而不是{console_log_level}"
+        assert file_log_level in (0, 1, 2, 3, 4, 5), f"file_log_level必须在0~5之间而不是{file_log_level}"
+        console_log_level *= 10
+        file_log_level *= 10
+        setup_logger("torch_frame", output=self.log_file,
+                     console_log_level=console_log_level, file_log_level=file_log_level)
 
         os.makedirs(self.ckpt_dir, exist_ok=True)
         split_line = "-" * 50
         logger.info(
             f"\n{split_line}\n"
             f"Work directory: {self.work_dir}\n"
-            f"Checkpoint directory: {self.ckpt_dir}\n"
-            f"Tensorboard directory: {self.tb_log_dir}\n"
-            f"Log file: {self.log_file}\n"
             f"{split_line}"
         )
 
@@ -214,11 +230,11 @@ class Trainer:
 
     def _build_default_hooks(self) -> List[HookBase]:
         return [
-            CheckpointerHook(self._checkpoint_period, self._max_num_checkpoints),
-            LoggerHook(self._log_period, tb_log_dir=self.tb_log_dir),
+            CheckpointerHook(),
+            LoggerHook(tb_log_dir=self.tb_log_dir),
         ]
 
-    def _log_iter_metrics(self, loss_dict: Dict[str, torch.Tensor], data_time: float,
+    def _update_iter_metrics(self, loss_dict: Dict[str, torch.Tensor], data_time: float,
                           iter_time: float, lr: float) -> None:
         """
         每个iter评估的log
@@ -232,7 +248,7 @@ class Trainer:
         self.log(self.cur_iter, data_time=data_time, iter_time=iter_time)
         self.log(self.cur_iter, lr=lr, smooth=False)
 
-        loss_dict = {k: v.detach().cpu().item() for k, v in loss_dict.items()}
+        loss_dict = {k: v.detach().cpu().item() if isinstance(v, torch.Tensor) else v for k, v in loss_dict.items()}
         loss_value = sum(loss_dict.values())
         if not np.isfinite(loss_value):
             raise FloatingPointError(
@@ -302,21 +318,43 @@ class Trainer:
         ###########################
         self.lr_scheduler.step()
 
-        self._log_iter_metrics(loss_dict, data_time, time.perf_counter() - iter_start_time, lr_this_iter)
+        self._update_iter_metrics(loss_dict, data_time, time.perf_counter() - iter_start_time, lr_this_iter)
 
     def _train_one_epoch(self) -> None:
         """执行模型一个epoch的全部操作"""
         self.model.train()
+        pbar = tqdm(total=self.epoch_len, desc=f"epoch={self.epoch}", ascii=True)
         for self.inner_iter in range(self.epoch_len):
             self._call_hooks("before_iter")
             self.train_one_iter()
             self._call_hooks("after_iter")
+            show_info = {k: v.avg for k, v in self.metric_storage.items()}
+            pbar.set_postfix(show_info)
+            pbar.update(1)
+        pbar.close()
         self._data_iter = iter(self.data_loader)
 
-    def train(self) -> None:
-        """训练入口"""
+    def train(self,
+              console_log_level: int = 2,
+              file_log_level: int = 2) -> None:
+        """
+        训练入口
+
+        Parameters
+        ----------
+        console_log_level : int, default 2.
+            输出到屏幕的log等级, 可选范围是0-5, 它们对应的关系分别为：
+            * 5: FATAL
+            * 4: ERROR
+            * 3: WARNING
+            * 2: INFO
+            * 1: DEBUG
+            * 0: NOTSET
+        file_log_level : int, default 2.
+            输出到文件里的log等级, 其他方面同console_log_level参数
+        """
         logger.info(f"开始从{self.start_epoch}epoch训练")
-        self._prepare_for_training()
+        self._prepare_for_training(console_log_level, file_log_level)
         self._call_hooks("before_train")
         for self.epoch in range(self.start_epoch, self.max_epochs):
             self._call_hooks("before_epoch")
@@ -360,7 +398,8 @@ class Trainer:
 
         # tag last checkpoint
         dst_file = osp.join(self.ckpt_dir, "latest.pth")
-        symlink(file_name, dst_file)
+        torch.save(data, file_path)
+        # symlink(file_name, dst_file)
 
     def load_checkpoint(self, path: str = None, checkpoint: Dict[str, Any] = None):
         """
@@ -369,12 +408,24 @@ class Trainer:
         Parameters
         ----------
         path : str, default None. checkpoint的地址
-        checkpoint : dict, default None. 如果path非空, 优先使用path的数据, 否则直接加载checkpoint的数据
+        checkpoint : dict, default None.
+            如果path非空, 优先使用path的数据, 否则直接加载checkpoint的数据。
+            直接加载的时候，将只加载模型，而不带各种状态
         """
-        assert (checkpoint is not None) ^ (path != "")
-        if path:
-            logger.info(f"Loading checkpoint from {path} ...")
-            checkpoint = torch.load(path, map_location="cpu")
+        assert (checkpoint is not None) and (path is not None)
+        if path is None:
+            incompatible = self.model_or_module.load_state_dict(checkpoint, strict=False)
+            if incompatible.missing_keys:
+                logger.warning("Encounter missing keys when loading model weights:\n"
+                               f"{incompatible.missing_keys}")
+            if incompatible.unexpected_keys:
+                logger.warning("Encounter unexpected keys when loading model weights:\n"
+                               f"{incompatible.unexpected_keys}")
+            logger.info("只加载模型本身...")
+            return
+
+        logger.info(f"Loading checkpoint from {path} ...")
+        checkpoint = torch.load(path, map_location="cpu")
 
         # 1. 加载 epoch
         self.start_epoch = checkpoint["epoch"] + 1
@@ -418,6 +469,8 @@ class Trainer:
                 if h.class_name == key and h.checkpointable:
                     h.load_state_dict(value)
                     break
+        if path:
+            logger.info(f"加载模型{path}成功")
 
 
 class MetricStorage(dict):
