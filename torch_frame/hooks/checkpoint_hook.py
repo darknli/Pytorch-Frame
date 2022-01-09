@@ -16,7 +16,9 @@ class CheckpointerHook(HookBase):
     def __init__(self, period: int = 1,
                  max_to_keep: Optional[int] = None,
                  save_metric: Optional[str] = None,
-                 max_first: bool = True) -> None:
+                 max_first: bool = True,
+                 save_last: bool = True
+                 ) -> None:
         """
         初始化
         Parameters
@@ -27,6 +29,8 @@ class CheckpointerHook(HookBase):
             保存模型的指标是哪个, 需要从trainer.metric_storage选择
         max_first : bool, default True.
             用于保存模型的指标是取最大还是最小作为最优模型
+        save_last : bool, default True
+            是否保存最近一次的epoch的模型, 如果是True, 每轮将更新模型到latest.pth中
         """
         self._period = period
         assert max_to_keep is None or max_to_keep > 0
@@ -40,11 +44,18 @@ class CheckpointerHook(HookBase):
             self.cur_best = float("inf")
             self.is_better = lambda a: a < self.cur_best
 
+        self.save_last = save_last
+
         self._recent_checkpoints: List[str] = []
 
     def after_epoch(self) -> None:
-        if not (self.every_n_epochs(self._period) or self.is_last_epoch()):
-            return
+        if self.every_n_epochs(self._period) or self.is_last_epoch():
+            self.save_model()
+
+    def save_model(self):
+        if self.save_last:
+            self.trainer.save_checkpoint("latest.pth", False)
+
         # 如果当天epoch指标没有更好, 则不保存模型
         if self.save_metric is not None:
             if not self.is_better(self.trainer.metric_storage[self.save_metric]):

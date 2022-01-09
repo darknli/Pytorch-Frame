@@ -15,10 +15,9 @@ from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 
 from .hooks import CheckpointerHook, HookBase, LoggerHook
-from .logger import setup_logger
+from .utils import setup_logger
 from .lr_scheduler import LRWarmupScheduler
-from .history_buffer import HistoryBuffer
-from .misc import symlink
+from .utils import HistoryBuffer
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -318,20 +317,21 @@ class Trainer:
         ###########################
         self.lr_scheduler.step()
 
+        show_info = {k: v.detach().cpu().item() if isinstance(v, torch.Tensor) else v for k, v in loss_dict.items()}
+        self.pbar.set_postfix(show_info)
         self._update_iter_metrics(loss_dict, data_time, time.perf_counter() - iter_start_time, lr_this_iter)
 
     def _train_one_epoch(self) -> None:
         """执行模型一个epoch的全部操作"""
         self.model.train()
-        pbar = tqdm(total=self.epoch_len, desc=f"epoch={self.epoch}", ascii=True)
+        self.pbar = tqdm(total=self.epoch_len, desc=f"epoch={self.epoch}", ascii=True)
         for self.inner_iter in range(self.epoch_len):
             self._call_hooks("before_iter")
             self.train_one_iter()
             self._call_hooks("after_iter")
-            show_info = {k: v.avg for k, v in self.metric_storage.items()}
-            pbar.set_postfix(show_info)
-            pbar.update(1)
-        pbar.close()
+            self.pbar.update(1)
+        self.pbar.close()
+        del self.pbar
         self._data_iter = iter(self.data_loader)
 
     def train(self,
@@ -362,7 +362,7 @@ class Trainer:
             self._call_hooks("after_epoch")
         self._call_hooks("after_train")
 
-    def save_checkpoint(self, file_name: str) -> None:
+    def save_checkpoint(self, file_name: str, print_info: bool = False) -> None:
         """
         保存参数, 包含:
 
@@ -376,7 +376,8 @@ class Trainer:
 
         Parameters
         ----------
-        file_name ：str, 保存文件名
+        file_name : str, 保存文件名
+        print_info : bool, default True. 如果是True, 则输出保存模型的提示信息
         """
 
         data = {
@@ -393,13 +394,9 @@ class Trainer:
             data["grad_scaler"] = self._grad_scaler.state_dict()
 
         file_path = osp.join(self.ckpt_dir, file_name)
-        logger.info(f"Saving checkpoint to {file_path}")
+        if print_info:
+            logger.info(f"Saving checkpoint to {file_path}")
         torch.save(data, file_path)
-
-        # tag last checkpoint
-        dst_file = osp.join(self.ckpt_dir, "latest.pth")
-        torch.save(data, file_path)
-        # symlink(file_name, dst_file)
 
     def load_checkpoint(self, path: str = None, checkpoint: Dict[str, Any] = None):
         """
@@ -412,7 +409,7 @@ class Trainer:
             如果path非空, 优先使用path的数据, 否则直接加载checkpoint的数据。
             直接加载的时候，将只加载模型，而不带各种状态
         """
-        assert (checkpoint is not None) and (path is not None)
+        assert checkpoint is None or path is None
         if path is None:
             incompatible = self.model_or_module.load_state_dict(checkpoint, strict=False)
             if incompatible.missing_keys:
@@ -424,7 +421,6 @@ class Trainer:
             logger.info("只加载模型本身...")
             return
 
-        logger.info(f"Loading checkpoint from {path} ...")
         checkpoint = torch.load(path, map_location="cpu")
 
         # 1. 加载 epoch
@@ -496,13 +492,13 @@ class MetricStorage(dict):
         0.15
     """
 
-    def __init__(self, window_size: int = 20) -> None:
-        self._window_size = window_size
+    def __init__(self, default_win_size: int = 20) -> None:
+        self._default_win_size = default_win_size
         self._history: Dict[str, HistoryBuffer] = self
         self._smooth: Dict[str, bool] = {}
         self._latest_iter: Dict[str, int] = {}
 
-    def update(self, iter: Optional[int] = None, smooth: bool = True, **kwargs) -> None:
+    def update(self, iter: Optional[int] = None, smooth: bool = True, window_size: int = None, **kwargs) -> None:
         """Add new scalar values of multiple metrics produced at a certain iteration.
 
         Args:
@@ -511,13 +507,14 @@ class MetricStorage(dict):
             smooth (bool): If True, return the smoothed values of these metrics when
                 calling :meth:`values_maybe_smooth`. Otherwise, return the latest values.
                 The same metric must have the same ``smooth`` in different calls to :meth:`update`.
+            window_size : int
         """
         for key, value in kwargs.items():
             if key in self._smooth:
                 assert self._smooth[key] == smooth
             else:
                 self._smooth[key] = smooth
-                self._history[key] = HistoryBuffer(window_size=self._window_size)
+                self._history[key] = HistoryBuffer(window_size=window_size if window_size else self._default_win_size)
                 self._latest_iter[key] = -1
             if iter is not None:
                 assert iter > self._latest_iter[key]

@@ -62,4 +62,4 @@ class HistoryBuffer:
         return self.avg > other
 
     def __str__(self):
-        return str(self.avg)
+        return str(round(self.avg, 4))

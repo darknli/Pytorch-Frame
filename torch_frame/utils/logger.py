@@ -28,7 +28,7 @@ def setup_logger(
     console_log_level: int = logging.INFO,
     file_log_level: int = logging.INFO,
     rank: int = 0,
-    color: bool = True,
+    color: bool = False,
 ) -> logging.Logger:
     """
     初始化 logger
@@ -84,7 +84,7 @@ def setup_logger(
         logger输出到文件的等级
     rank : int, default 0
         分布式训练中进程等级
-    color : bool, default True
+    color : bool, default False
         如果是True，logger将会有颜色
 
     Returns
