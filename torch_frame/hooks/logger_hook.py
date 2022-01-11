@@ -71,8 +71,11 @@ class LoggerHook(HookBase):
         else:
             max_mem_mb = None
 
+        exclude = ("data_time", "iter_time", "lr")
         keys_dict = {mode: set() for mode in self.modes}
         for key in self.metric_storage:
+            if key in exclude:
+                continue
             not_found = True
             for mode in self.modes:
                 if key.startswith(mode):
