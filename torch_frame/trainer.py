@@ -13,7 +13,7 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
-
+import datetime
 from .hooks import CheckpointerHook, HookBase, LoggerHook
 from .utils import setup_logger
 from .lr_scheduler import LRWarmupScheduler
@@ -55,7 +55,8 @@ class Trainer:
             warmup_method: Optional[str] = None,
             warmup_iters: int = 1000,
             warmup_factor: float = 0.001,
-            hooks: Optional[List[HookBase]] = None
+            hooks: Optional[List[HookBase]] = None,
+            create_new_dir: Optional[str] = "time_s"
     ):
         """
         初始化
@@ -82,8 +83,42 @@ class Trainer:
             warmup初始学习率 = warmup_factor * initial_lr
         hooks : List[HookBase], default None.
             hooks, 保存模型、输出评估指标、loss等用
+        create_new_dir : Optional[str], default time
+            存在同名目录时以何种策略创建目录
+            * None, 直接使用同名目录
+            * `time_s`, 如果已经存在同名目录, 则以时间(精确到秒)为后缀创建新目录
+            * `time_m`, 如果已经存在同名目录, 则以时间(精确到分)为后缀创建新目录
+            * `time_h`, 如果已经存在同名目录, 则以时间(精确到小时)为后缀创建新目录
+            * `time_d`, 如果已经存在同名目录, 则以时间(精确到日)为后缀创建新目录
+            * `count`, 如果已经存在同名目录, 则以序号为后缀创建新目录
         """
         logger.setLevel(logging.INFO)
+
+        if create_new_dir not in (None, "time_s", "time_m", "time_h", "time_d", "count"):
+            logger.warning("create_new_dir参数输入错误, 使用`time_s`为其赋值")
+            create_new_dir = "time_s"
+        if os.path.exists(work_dir):
+            if create_new_dir == "time_s":
+                now = datetime.datetime.now()
+                now_format = now.strftime("%Y-%m-%d %H_%M_%S")
+                work_dir = f"{work_dir}_{now_format}"
+            elif create_new_dir == "time_m":
+                now = datetime.datetime.now()
+                now_format = now.strftime("%Y-%m-%d %H_%M")
+                work_dir = f"{work_dir}_{now_format}"
+            elif create_new_dir == "time_h":
+                now = datetime.datetime.now()
+                now_format = now.strftime("%Y-%m-%d %H")
+                work_dir = f"{work_dir}_{now_format}"
+            elif create_new_dir == "time_d":
+                now = datetime.datetime.now()
+                now_format = now.strftime("%Y-%m-%d")
+                work_dir = f"{work_dir}_{now_format}"
+            elif create_new_dir == "count":
+                for i in range(10000):
+                    if not os.path.exists(f"{work_dir}_{i}"):
+                        break
+                work_dir = f"{work_dir}_{i}"
 
         self.model = model
         self.optimizer = optimizer
@@ -362,7 +397,8 @@ class Trainer:
             self._call_hooks("after_epoch")
         self._call_hooks("after_train")
 
-    def save_checkpoint(self, file_name: str, print_info: bool = False) -> None:
+    def save_checkpoint(self, file_name: str, save_single_model: bool = True,
+                        print_info: bool = False) -> None:
         """
         保存参数, 包含:
 
@@ -377,6 +413,7 @@ class Trainer:
         Parameters
         ----------
         file_name : str, 保存文件名
+        save_single_model : bool, default True. 如果是True, 还会额外保存一个只有模型参数的文件到best_model.pth
         print_info : bool, default True. 如果是True, 则输出保存模型的提示信息
         """
 
@@ -397,6 +434,8 @@ class Trainer:
         if print_info:
             logger.info(f"Saving checkpoint to {file_path}")
         torch.save(data, file_path)
+        if save_single_model:
+            torch.save(self.model_or_module.state_dict(), osp.join(self.ckpt_dir, "best_model.pth"))
 
     def load_checkpoint(self, path: str = None, checkpoint: Dict[str, Any] = None):
         """

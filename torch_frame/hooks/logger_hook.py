@@ -25,7 +25,7 @@ class LoggerHook(HookBase):
         kwargs : torch.utils.tensorboard.SummaryWriter的其他参数
         """
         self._period = period
-        self._tb_writer = SummaryWriter(tb_log_dir, **kwargs)
+        self.kwargs = kwargs
         # metric name -> the latest iteration written to tensorboard file
         self._last_write: Dict[str, int] = {}
 
@@ -37,6 +37,7 @@ class LoggerHook(HookBase):
 
     def before_train(self) -> None:
         self._train_start_time = time.perf_counter()
+        self._tb_writer = SummaryWriter(self.trainer.work_dir, **self.kwargs)
 
     def after_train(self) -> None:
         self._tb_writer.close()
@@ -101,7 +102,8 @@ class LoggerHook(HookBase):
         )
 
         for keys in keys_dict.values():
-            info = " ".join([f"{k}: {self.metric_storage[k]}" for k in keys])
+            key_list = sorted(list(keys), key=lambda x: "total" not in x)
+            info = " ".join([f"{k}: {self.metric_storage[k]}" for k in key_list])
             if info == "":
                 continue
             logger.info(info)
