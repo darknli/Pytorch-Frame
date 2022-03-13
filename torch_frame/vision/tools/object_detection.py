@@ -10,6 +10,7 @@ __all__ = [
     "det_postprocess",
     "bboxes_iou",
     "xyxy2cxcywh",
+    "box_candidates"
 ]
 
 
@@ -49,7 +50,7 @@ def det_postprocess(prediction: torch.Tensor,
     Parameters
     ----------
     prediction : torch.Tensor
-        检测模型给出的候选目标框, 采取了YOLO中boxes的形式: shape=[batch_size, num_boxes, 4 + 1 + num_classes],
+        检测模型给出的候选目标框, 采取了YOLO中boxes的形式: shape=(batch_size, num_boxes, 4 + 1 + num_classes)
         boxes的格式是x1,y1,x2,y2,confidence,class_score1, class_score2,...,class_scoreN
     num_classes : int
     conf_thre : float, default 0.7
@@ -113,13 +114,13 @@ def bboxes_iou(bboxes_a: np.ndarray | torch.Tensor, bboxes_b: np.ndarray | torch
     """
     Parameters
     ----------
-    bboxes_a : np.ndarray | torch.Tensor, shape=[batch_size, 4]
-    bboxes_b : np.ndarray | torch.Tensor, shape=[batch_size, 4]
+    bboxes_a : np.ndarray | torch.Tensor, shape=(batch_size, 4)
+    bboxes_b : np.ndarray | torch.Tensor, shape=(batch_size, 4)
     xyxy : bool, default True
         输入格式是[x1,y1,x2,y2]还是[cx,cy,w,h]
     Returns
     -------
-    iou : np.ndarray | torch.Tensor
+    iou : np.ndarray | torch.Tensor, shape=(batch_size, )
     """
     if bboxes_a.shape[1] != 4 or bboxes_b.shape[1] != 4:
         raise IndexError
@@ -154,14 +155,45 @@ def xyxy2cxcywh(bboxes: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:
     Parameters
     ----------
     bboxes : np.ndarray or torch.Tensor
-        目标框坐标数组, shape=[None, 4], 格式是[[x1, y1, x2, y2]]
+        目标框坐标数组, shape=(None, 4), 格式是[[x1, y1, x2, y2]]
     Returns
     -------
     bboxes : np.ndarray or torch.Tensor
-        目标框坐标数组, shape=[None, 4], 格式是[[cx, cy, w, h]]
+        目标框坐标数组, shape=(None, 4), 格式是[[cx, cy, w, h]]
     """
     bboxes[:, 2] = bboxes[:, 2] - bboxes[:, 0]
     bboxes[:, 3] = bboxes[:, 3] - bboxes[:, 1]
     bboxes[:, 0] = bboxes[:, 0] + bboxes[:, 2] * 0.5
     bboxes[:, 1] = bboxes[:, 1] + bboxes[:, 3] * 0.5
     return bboxes
+
+
+def box_candidates(box1: np.ndarray, box2: np.ndarray, wh_thr: int = 2, ar_thr: int = 20,
+                   area_thr: float = 0.2):
+    """
+    对box2做过滤，对于一些极端情况做删除
+
+    Parameters
+    ----------
+    box1 : np.ndarray. shape=(None, 4), 格式是[[x1, y1, x2, y2]].
+    box2 : np.ndarray. shape=(None, 4), 格式是[[x1, y1, x2, y2]].
+    wh_thr : int, default 2. 宽高的最小阈值, 小于该值会被过滤.
+    ar_thr : int, default 20. 最大宽高比阈值, 大于该值会被过滤.
+    area_thr: float, default 0.2. 与box1的面积比例，小于该值会被过滤
+
+    Returns
+    -------
+    mask: np.ndarray. shape=(None, ), box2的mask.
+    """
+    # box1(4,n), box2(4,n)
+    # Compute candidate boxes which include follwing 5 things:
+    # box1 before augment, box2 after augment, wh_thr (pixels), aspect_ratio_thr, area_ratio
+    w1, h1 = box1[:, 2] - box1[:, 0], box1[:, 3] - box1[:, 1]
+    w2, h2 = box2[:, 2] - box2[:, 0], box2[:, 3] - box2[:, 1]
+    ar = np.maximum(w2 / (h2 + 1e-16), h2 / (w2 + 1e-16))  # aspect ratio
+    return (
+            (w2 > wh_thr)
+            & (h2 > wh_thr)
+            & (w2 * h2 / (w1 * h1 + 1e-16) > area_thr)
+            & (ar < ar_thr)
+    )
