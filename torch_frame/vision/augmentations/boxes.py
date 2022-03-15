@@ -7,7 +7,8 @@ from ..tools.object_detection import box_candidates
 
 __all__ = [
     "random_perspective",
-    "mixup_boxes"
+    "mixup_boxes",
+    "mosaic"
 ]
 
 
@@ -118,7 +119,7 @@ def random_perspective(img: np.ndarray, targets: Union[np.ndarray, list, tuple],
 
 
 def mixup_boxes(img1: np.ndarray, boxes1: np.ndarray, img2: np.ndarray, boxes2: np.ndarray,
-                mixup_scale: float = 0.1, wh_thr: int = 10):
+                mixup_scale: float = 0.1, wh_thr: int = 0, ar_thr: int = 100, area_thr: float = 0):
     """
     mixup的目标检测版
 
@@ -129,7 +130,9 @@ def mixup_boxes(img1: np.ndarray, boxes1: np.ndarray, img2: np.ndarray, boxes2: 
     img2 : np.ndarray. 图片2
     boxes2 : np.ndarray. 图片2对应的boxes
     mixup_scale: float, default 0.1. 做alpha融合的alpha波动概率，比如0.1的话实际alpha值会在0.4~0.6均匀采样
-    wh_thr : int, default 10. boxes宽和高的最小阈值，低于它的box会被删除
+    wh_thr : int, default 0. boxes宽和高的最小阈值，低于它的box会被删除
+    ar_thr ： int, default 100. 宽高比，低于它的box会被删除
+    area_thr : float, default 0. 旧vs新box面积比例，低于它的box被删除
 
     Returns
     -------
@@ -142,9 +145,9 @@ def mixup_boxes(img1: np.ndarray, boxes1: np.ndarray, img2: np.ndarray, boxes2: 
         dst_img[y_offset: h + y_offset, x_offset: w + x_offset] += image * alpha
         if len(boxes) > 0:
             new_boxes = boxes.copy()
-            new_boxes[:, 0::2] = np.clip(new_boxes[:, 0::2] - x_offset, 0, dst_w)
-            new_boxes[:, 1::2] = np.clip(new_boxes[:, 1::2] - y_offset, 0, dst_h)
-            mask = box_candidates(boxes, new_boxes, wh_thr)
+            new_boxes[:, 1::2] = np.clip(new_boxes[:, 1::2] + x_offset, 0, dst_w)
+            new_boxes[:, 2::2] = np.clip(new_boxes[:, 2::2] + y_offset, 0, dst_h)
+            mask = box_candidates(boxes, new_boxes[:, 1:], wh_thr, ar_thr, area_thr)
             boxes = new_boxes[mask]
         else:
             boxes = np.zeros((0, 5))
@@ -160,3 +163,84 @@ def mixup_boxes(img1: np.ndarray, boxes1: np.ndarray, img2: np.ndarray, boxes2: 
     dst_img, dst_boxes2 = translate(img2.astype(float), boxes2, h2, w2, 1 - alpha)
     dst_boxes = np.vstack([dst_boxes1, dst_boxes2])
     return dst_img.astype(np.uint8), dst_boxes
+
+
+def mosaic(data: list, ouput_dim: Union[list, tuple], fill_value=114):
+    """
+    mosaic拼接，用于数据增强，对于小目标检测有效
+
+    Parameters
+    ----------
+    data : List[tuple]. list包含(image, bboxes)tuple，长度是4
+    ouput_dim : Union[list, tuple]. 输出是[height, width]
+    fill_value : Union[int, tuple].
+
+    Returns
+    -------
+    mosaic_img : np.ndarray. 拼接后的图片
+    mosaic_bboxes : Union[list, np.ndarray]. 拼接后的目标框，为空时是list类型
+    """
+
+    def get_mosaic_coordinate(mosaic_index, xc, yc, w, h):
+        # index0 to top left part of image
+        if mosaic_index == 0:
+            x1, y1, x2, y2 = max(xc - w, 0), max(yc - h, 0), xc, yc
+            small_coord = w - (x2 - x1), h - (y2 - y1), w, h
+        # index1 to top right part of image
+        elif mosaic_index == 1:
+            x1, y1, x2, y2 = xc, max(yc - h, 0), min(xc + w, ouput_w * 2), yc
+            small_coord = 0, h - (y2 - y1), min(w, x2 - x1), h
+        # index2 to bottom left part of image
+        elif mosaic_index == 2:
+            x1, y1, x2, y2 = max(xc - w, 0), yc, xc, min(ouput_h * 2, yc + h)
+            small_coord = w - (x2 - x1), 0, w, min(y2 - y1, h)
+        # index2 to bottom right part of image
+        elif mosaic_index == 3:
+            x1, y1, x2, y2 = xc, yc, min(xc + w, ouput_w * 2), min(ouput_h * 2, yc + h)  # noqa
+            small_coord = 0, 0, min(w, x2 - x1), min(y2 - y1, h)
+        return (x1, y1, x2, y2), small_coord
+
+    assert len(data) == 4, "`data`长度应该是4"
+    assert len(ouput_dim) == 2, "`data`长度应该是2"
+
+    mosaic_bboxes = []
+    ouput_h, ouput_w = ouput_dim[0], ouput_dim[1]
+
+    # yc, xc = s, s  # mosaic center x, y
+    yc = int(random.uniform(0.5 * ouput_h, 1.5 * ouput_h))
+    xc = int(random.uniform(0.5 * ouput_w, 1.5 * ouput_w))
+    mosaic_img = np.full((ouput_h * 2, ouput_w * 2, 3), fill_value, dtype=np.uint8)
+
+    for i_mosaic, (img, bboxes) in enumerate(data):
+        h0, w0 = img.shape[:2]  # orig hw
+        scale = min(1. * ouput_h / h0, 1. * ouput_w / w0)
+        img = cv2.resize(
+            img, (int(w0 * scale), int(h0 * scale)), interpolation=cv2.INTER_LINEAR
+        )
+        h, w = img.shape[:2]
+
+        # suffix l means large image, while s means small image in mosaic aug.
+        (l_x1, l_y1, l_x2, l_y2), (s_x1, s_y1, s_x2, s_y2) = get_mosaic_coordinate(i_mosaic, xc, yc, w, h)
+
+        mosaic_img[l_y1:l_y2, l_x1:l_x2] = img[s_y1:s_y2, s_x1:s_x2]
+        padw, padh = l_x1 - s_x1, l_y1 - s_y1
+
+        # Normalized xywh to pixel xyxy format
+        if bboxes.size > 0:
+            scale_bboxes = bboxes.copy()
+            scale_bboxes[:, 1] = scale * bboxes[:, 1] + padw
+            scale_bboxes[:, 2] = scale * bboxes[:, 2] + padh
+            scale_bboxes[:, 3] = scale * bboxes[:, 3] + padw
+            scale_bboxes[:, 4] = scale * bboxes[:, 4] + padh
+        else:
+            scale_bboxes = np.zeros((0, 5))
+        mosaic_bboxes.append(scale_bboxes)
+
+    if len(mosaic_bboxes) > 0:
+        mosaic_bboxes = np.concatenate(mosaic_bboxes, 0)
+        np.clip(mosaic_bboxes[:, 0], 0, 2 * ouput_w, out=mosaic_bboxes[:, 0])
+        np.clip(mosaic_bboxes[:, 1], 0, 2 * ouput_h, out=mosaic_bboxes[:, 1])
+        np.clip(mosaic_bboxes[:, 2], 0, 2 * ouput_w, out=mosaic_bboxes[:, 2])
+        np.clip(mosaic_bboxes[:, 3], 0, 2 * ouput_h, out=mosaic_bboxes[:, 3])
+
+    return mosaic_img, mosaic_bboxes
