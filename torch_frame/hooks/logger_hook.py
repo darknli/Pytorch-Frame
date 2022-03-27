@@ -77,13 +77,11 @@ class LoggerHook(HookBase):
         for key in self.metric_storage:
             if key in exclude:
                 continue
-            not_found = True
             for mode in self.modes:
                 if key.startswith(mode):
                     keys_dict[mode].add(key)
-                    not_found = False
                     break
-            if not_found:
+            else:
                 keys_dict["train_"].add(key)
 
         process_string = f"Epoch: [{self.trainer.epoch}][{self.trainer.inner_iter}/{self.trainer.epoch_len - 1}]"
@@ -111,6 +109,12 @@ class LoggerHook(HookBase):
     def _write_tensorboard(self) -> None:
         for key, (iter, value) in self.metric_storage.values_maybe_smooth.items():
             if key not in self._last_write or iter > self._last_write[key]:
+                for mode in self.modes:
+                    if key.startswith(mode):
+                        key = f"{mode.strip('_')}/{key}"
+                        break
+                else:
+                    key = f"train/{key}"
                 self._tb_writer.add_scalar(key, value, iter)
                 self._last_write[key] = iter
 
