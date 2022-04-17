@@ -77,9 +77,14 @@ def set_random_seed(seed: int, rank: int = 0) -> None:
     """
     assert seed >= 0, f"Got invalid seed value {seed}."
     seed += rank
-    random.seed(seed)
-    np.random.seed(seed)
     torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)  # Numpy module.
+    random.seed(seed)  # Python random module.
+    torch.backends.cudnn.benchmark = False  # 保证每次卷积的算子都是固定的，而非使用最高效的方法
+    torch.backends.cudnn.deterministic = True
+
     os.environ["PYTHONHASHSEED"] = str(seed)
 
 

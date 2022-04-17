@@ -1,5 +1,5 @@
 from typing import Callable, Optional
-
+from tqdm import tqdm
 import torch
 from torch.utils.data.dataloader import DataLoader
 from .checkpoint_hook import CheckpointerHook
@@ -46,10 +46,11 @@ class EvalHook(CheckpointerHook):
         tot_res = {}
         self.trainer.model.eval()
         with torch.no_grad():
-            for batch in self.dataloader:
-                res = self._eval_func(self.trainer.model, batch)
-                for k, v in res.items():
-                    tot_res.setdefault(k, []).extend(v)
+            with tqdm(self.dataloader, desc="eval") as pbar:
+                for batch in pbar:
+                    res = self._eval_func(self.trainer.model, batch)
+                    for k, v in res.items():
+                        tot_res.setdefault(k, []).extend(v)
         self.trainer.model.train()
         if tot_res:
             rename_res = {self.prefix + k: np.mean(v) for k, v in tot_res.items()}

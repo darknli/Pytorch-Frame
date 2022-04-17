@@ -56,18 +56,19 @@ class CheckpointerHook(HookBase):
         if self.save_last:
             self.trainer.save_checkpoint("latest.pth", False)
 
-        # 如果当天epoch指标没有更好, 则不保存模型
+        # 如果当前epoch指标没有更好, 则不保存模型
         if self.save_metric is not None:
             if not self.is_better(self.trainer.metric_storage[self.save_metric]):
                 return
             else:
                 self.cur_best = self.trainer.metric_storage[self.save_metric].avg
                 logger.info(f"{self.save_metric} update to {round(self.cur_best, 4)}")
-        epoch = self.trainer.epoch  # ranged in [0, max_epochs - 1]
-        checkpoint_name = f"epoch_{epoch}.pth"
-        self.trainer.save_checkpoint(checkpoint_name)
 
-        if self._max_to_keep is not None:
+        self.trainer.save_checkpoint("best.pth")
+        if self._max_to_keep is not None and self._max_to_keep >= 1:
+            epoch = self.trainer.epoch  # ranged in [0, max_epochs - 1]
+            checkpoint_name = f"epoch_{epoch}.pth"
+            self.trainer.save_checkpoint(checkpoint_name)
             self._recent_checkpoints.append(checkpoint_name)
             if len(self._recent_checkpoints) > self._max_to_keep:
                 # delete the oldest checkpoint

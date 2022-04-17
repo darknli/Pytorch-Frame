@@ -433,9 +433,10 @@ class Trainer:
         file_path = osp.join(self.ckpt_dir, file_name)
         if print_info:
             logger.info(f"Saving checkpoint to {file_path}")
-        torch.save(data, file_path)
         if save_single_model:
-            torch.save(self.model_or_module.state_dict(), osp.join(self.ckpt_dir, "best_model.pth"))
+            torch.save(self.model_or_module.state_dict(), file_path)
+        else:
+            torch.save(data, file_path)
 
     def load_checkpoint(self, path: str = None, checkpoint: Dict[str, Any] = None):
         """
