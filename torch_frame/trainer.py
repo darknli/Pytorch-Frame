@@ -149,7 +149,6 @@ class Trainer:
             self.register_hooks(self._build_default_hooks())
         else:
             self.register_hooks(hooks)
-        logger.info(f"Registered default hooks: {self.registered_hook_names}")
 
     @property
     def lr(self) -> float:
@@ -228,12 +227,14 @@ class Trainer:
                      console_log_level=console_log_level, file_log_level=file_log_level)
 
         os.makedirs(self.ckpt_dir, exist_ok=True)
-        split_line = "-" * 50
-        logger.info(
-            f"\n{split_line}\n"
-            f"Work directory: {self.work_dir}\n"
-            f"{split_line}"
-        )
+        if self.start_epoch == 0:
+            logger.info(f"Registered default hooks: {self.registered_hook_names}")
+            split_line = "-" * 50
+            logger.info(
+                f"\n{split_line}\n"
+                f"Work directory: {self.work_dir}\n"
+                f"{split_line}"
+            )
 
     def register_hooks(self, hooks: List[Optional[HookBase]]) -> None:
         """
@@ -423,6 +424,7 @@ class Trainer:
             "optimizer": self.optimizer.state_dict(),
             "lr_scheduler": self.lr_scheduler.state_dict(),
             "metric_storage": self.metric_storage,
+            "work_dir": self.work_dir,
         }
         hook_states = {h.class_name: h.state_dict() for h in self._hooks if h.checkpointable}
         if hook_states:
@@ -505,6 +507,10 @@ class Trainer:
                 if h.class_name == key and h.checkpointable:
                     h.load_state_dict(value)
                     break
+
+        # 8. 加载保存目录
+        self.work_dir = checkpoint["work_dir"]
+
         if path:
             logger.info(f"加载模型{path}成功")
 
