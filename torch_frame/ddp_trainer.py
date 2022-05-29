@@ -1,4 +1,4 @@
-from .trainer import Trainer, nn, optim, Optional, List, HookBase, logger, torch
+from .trainer import Trainer, nn, optim, Optional, List, HookBase, torch
 from torch.utils.data import DataLoader, Dataset, DistributedSampler, RandomSampler
 import torch.distributed as dist
 

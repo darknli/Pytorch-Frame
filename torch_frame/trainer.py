@@ -18,9 +18,7 @@ from .hooks import CheckpointerHook, HookBase, LoggerHook
 from .utils import setup_logger
 from .lr_scheduler import LRWarmupScheduler
 from .utils import HistoryBuffer
-
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+from ._get_logger import logger
 
 
 class Trainer:
