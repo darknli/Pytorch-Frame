@@ -389,7 +389,7 @@ class Trainer:
         file_log_level : int, default 2.
             输出到文件里的log等级, 其他方面同console_log_level参数
         """
-        logger.info(f"开始从{self.start_epoch}epoch训练")
+        logger.info(f"开始从第{self.start_epoch}epoch训练")
         self._prepare_for_training(console_log_level, file_log_level)
         self._call_hooks("before_train")
         for self.epoch in range(self.start_epoch, self.max_epochs):
@@ -563,7 +563,7 @@ class MetricStorage(dict):
                 self._history[key] = HistoryBuffer(window_size=window_size if window_size else self._default_win_size)
                 self._latest_iter[key] = -1
             if iter is not None:
-                assert iter > self._latest_iter[key]
+                assert iter > self._latest_iter[key], "检查total_loss是不是存在于model给出的loss_dict中"
                 self._latest_iter[key] = iter
             else:
                 self._latest_iter[key] += 1

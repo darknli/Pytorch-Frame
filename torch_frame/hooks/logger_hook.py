@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class LoggerHook(HookBase):
     """写入评估指标到控制台和tensorboard"""
 
-    def __init__(self, period: int = 50, tb_log_dir: str = "log_dir", modes: Optional[list] = None, **kwargs) -> None:
+    def __init__(self, period: int = 50, tb_log_dir: Optional[str] = None, modes: Optional[list] = None, **kwargs) -> None:
         """
         Parameters
         ----------
@@ -34,10 +34,13 @@ class LoggerHook(HookBase):
         if "train" not in modes:
             modes.insert(0, "train")
         self.modes = {m + "_" for m in modes}
+        self.tb_log_dir = tb_log_dir
 
     def before_train(self) -> None:
         self._train_start_time = time.perf_counter()
-        self._tb_writer = SummaryWriter(self.trainer.work_dir, **self.kwargs)
+        if self.tb_log_dir is None:
+            self.tb_log_dir = self.trainer.work_dir
+        self._tb_writer = SummaryWriter(self.tb_log_dir, **self.kwargs)
 
     def after_train(self) -> None:
         self._tb_writer.close()
