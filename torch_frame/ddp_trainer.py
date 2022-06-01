@@ -30,7 +30,6 @@ class DDPTrainer(Trainer):
     """
 
     def __init__(self,
-                 use_dist: bool,
                  model: nn.Module,
                  optimizer: optim.Optimizer,
                  lr_scheduler: optim.lr_scheduler._LRScheduler,
@@ -44,6 +43,7 @@ class DDPTrainer(Trainer):
                  warmup_iters: int = 1000,
                  warmup_factor: float = 0.001,
                  hooks: Optional[List[HookBase]] = None,
+                 use_dist: bool = False,
                  create_new_dir: Optional[str] = "time_s"
                  ):
         """
@@ -51,7 +51,6 @@ class DDPTrainer(Trainer):
 
         Parameters
         ---------
-        use_dist : bool, 是否使用ddp
         model : torch.nn.Module, 模型
         optimizer : torch.optim.Optimizer, 优化器
         lr_scheduler : optim.lr_scheduler._LRScheduler, 学习率调节器
@@ -73,6 +72,7 @@ class DDPTrainer(Trainer):
             warmup初始学习率 = warmup_factor * initial_lr
         hooks : List[HookBase], default None.
             hooks, 保存模型、输出评估指标、loss等用
+        use_dist : bool, default False. 是否使用ddp
         create_new_dir : Optional[str], default time
             存在同名目录时以何种策略创建目录
             * None, 直接使用同名目录
@@ -82,7 +82,6 @@ class DDPTrainer(Trainer):
             * `time_d`, 如果已经存在同名目录, 则以时间(精确到日)为后缀创建新目录
             * `count`, 如果已经存在同名目录, 则以序号为后缀创建新目录
         """
-        assert torch.cuda.is_available(), "DDPtrainer必须要是可以运行cuda的"
 
         if use_dist:
             num_tasks = get_world_size()
@@ -90,8 +89,8 @@ class DDPTrainer(Trainer):
             sampler_trainer = DistributedSampler(dataset, num_replicas=num_tasks, rank=global_rank)
         else:
             sampler_trainer = RandomSampler(dataset)
-        self.data_loader = DataLoader(dataset, sampler=sampler_trainer, **dataset_params)
-        super(DDPTrainer, self).__init__(model, optimizer, lr_scheduler, self.data_loader, max_epochs, work_dir,
+        data_loader = DataLoader(dataset, sampler=sampler_trainer, **dataset_params)
+        super(DDPTrainer, self).__init__(model, optimizer, lr_scheduler, data_loader, max_epochs, work_dir,
                                          clip_grad_norm, enable_amp,  warmup_method, warmup_iters, warmup_factor,
                                          hooks, create_new_dir)
         self.use_dist = use_dist
@@ -99,7 +98,7 @@ class DDPTrainer(Trainer):
     def _train_one_epoch(self) -> None:
         """执行模型一个epoch的全部操作"""
         if self.use_dist:
-            dist.barrier()
+            # dist.barrier()  这里可能会造成阻塞
             self.data_loader.sampler.set_epoch(self.epoch)
         super(DDPTrainer, self)._train_one_epoch()
 

@@ -1,17 +1,22 @@
 # Pytorch Frame
 原代码来自https://github.com/machineko/coreml_torch_utils
 ，此为改版
+# 安装
+pip install torch-frame
 
 # 单卡训练
 使用Trainer训练，例如下面伪代码
 ```commandline
 # 创建dataset和dataloader
+from torch.util.dataset import Dataset, DataLoader
+from torch_frame import Trainer
+
 train_dataset = Dataset(...)
 train_dataloader = DataLoader(...)
 
 # 创建网络相关对象
 model = get_model(conf)
-optimizer = Adam(model, lr)
+optimizer = Adam(model.parameters(), lr)
 lr_scheduler = MultiStepLR(optimizer, ...)
 
 # 创建hooker，承载验证集部分和评估保存模型的任务
@@ -33,6 +38,57 @@ trainer = Trainer(model, optimizer, lr_scheduler, train_dataloader, num_epochs, 
 weights = torch.load("best.pth")
 trainer.load_checkpoint(checkpoint=weights)
 trainer.train(1, 1)
+```
+
+# 多卡训练
+使用DDPTrainer训练，以multiprocessing的方式举例
+```commandline
+from torch.util.dataset import Dataset, DataLoader
+from torch_frame import DDPTrainer
+import torch.multiprocessing as mp
+import torch.distributed as dist
+
+def main(cur_gpu, args):
+    if args.use_dist:
+        rank = args.nprocs * args.machine_rank + cur_gpu
+        dist.init_process_group(backend="nccl", init_method=args.url, world_size=args.world_size, rank=rank)
+        args.train_batch_size =  args.train_batch_size // args.world_size  # 这里需要把一个batch平分到每个gpu的数量
+    else:
+        args.train_batch_size = args.batch_size
+        
+   # 创建网络相关对象
+    model = get_model(conf)
+    
+    if args.use_dist: 
+        model = torcg,nn.SyncBatchNorn.convert_batchnorm(model)
+        torch.cuda.set_device(cur_gpu)
+        model.cuda(cur_gpu)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[cur_gpu], find_unused_parameter=True)
+    else:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model.to(device)
+    optimizer = Adam(model.parameters(), lr)
+    lr_scheduler = MultiStepLR(optimizer, ...)
+    
+    train_dataset = Dataset(...)
+    train_params = dict(batch_size=32, ...)
+    
+    if cur_gpu == 0:
+        hooks = [EvalHook(...), LoggerHook(...)] 
+    else:
+        hooks = []
+    
+    trainer = DDPtrainer(model, optimizer, lr_scheduler, train_dataset, train_params, num_epochs, hooks=hooks,
+                         use_dist=args.use_dist)
+                         
+
+if __name__ == "__name__":
+    nprocs = torch.cuda.device_count()
+    if args.use_dist:
+        mp.spawn(main, nprocs=nprocs, args=(args, ))
+    else:
+        main(0, args)
+    
 ```
 
 
