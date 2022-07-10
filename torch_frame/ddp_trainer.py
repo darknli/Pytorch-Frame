@@ -51,7 +51,11 @@ class DDPTrainer(Trainer):
 
         Parameters
         ---------
-        model : torch.nn.Module, 模型
+        model : torch.nn.Module, 训练模型, 训练时的输出只能是以下三种:
+            * torch.Tensor, 对于这种输出是模型backward用的loss, 在torch-frame框架中被称为total_loss
+            * dict, 里面是模型的各路分支的loss，需要是标量, Trainer会自动将其求和得到total_loss, 再做backward
+            * Tuple[Union[dict, torch.Tensor], dict]. 前两种的混合体, 元组第一个输出是前面两种的任意一种;
+              第二个输出是非需要backward类的, Trainer不会把这个dict汇总到total_loss上
         optimizer : torch.optim.Optimizer, 优化器
         lr_scheduler : optim.lr_scheduler._LRScheduler, 学习率调节器
         dataset : torch.utils.data.Dataset, 训练集数据生成器, 不需要创建dataloader, 由DDPTrainer内部创建

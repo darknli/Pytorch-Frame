@@ -61,7 +61,11 @@ class Trainer:
 
         Parameters
         ---------
-        model : torch.nn.Module, 模型
+        model : torch.nn.Module, 训练模型, 训练时的输出只能是以下三种:
+            * torch.Tensor, 对于这种输出是模型backward用的loss, 在torch-frame框架中被称为total_loss
+            * dict, 里面是模型的各路分支的loss，需要是标量, Trainer会自动将其求和得到total_loss, 再做backward
+            * Tuple[Union[dict, torch.Tensor], dict]. 前两种的混合体, 元组第一个输出是前面两种的任意一种;
+              第二个输出是非需要backward类的, Trainer不会把这个dict汇总到total_loss上
         optimizer : torch.optim.Optimizer, 优化器
         lr_scheduler : optim.lr_scheduler._LRScheduler, 学习率调节器
         data_loader : torch.utils.data.DataLoader, 数据生成器
@@ -137,6 +141,9 @@ class Trainer:
         self._hooks: List[HookBase] = []
         self._data_iter = iter(data_loader)
         self._clip_grad_norm = clip_grad_norm
+        if not torch.cuda.is_available():
+            enable_amp = False
+            logger.warning("torch环境无法使用cuda, AMP无法使用")
         self._enable_amp = enable_amp
 
         if self._enable_amp:
@@ -281,16 +288,13 @@ class Trainer:
         self.log(self.cur_iter, data_time=data_time, iter_time=iter_time)
         self.log(self.cur_iter, lr=lr, smooth=False)
 
-        loss_dict = {k: v.detach().cpu().item() if isinstance(v, torch.Tensor) else v for k, v in loss_dict.items()}
         loss_value = sum(loss_dict.values())
         if not np.isfinite(loss_value):
             raise FloatingPointError(
                 f"Loss became infinite or NaN at epoch={self.epoch}! loss_dict = {loss_dict}."
             )
 
-        self.log(self.cur_iter, total_loss=loss_value)
-        if len(loss_dict) > 1:
-            self.log(self.cur_iter, **loss_dict)
+        self.log(self.cur_iter, **loss_dict)
 
     def train_one_iter(self) -> None:
         """
@@ -315,14 +319,29 @@ class Trainer:
         #####################
         if self._enable_amp:
             with autocast():
-                loss_dict = self.model(batch)
+                loss_info = self.model(batch)
         else:
-            loss_dict = self.model(batch)
-        if isinstance(loss_dict, torch.Tensor):
-            losses = loss_dict
-            loss_dict = {"total_loss": loss_dict}
+            loss_info = self.model(batch)
+        if isinstance(loss_info, torch.Tensor):
+            losses = loss_info
+            loss_info = {"total_loss": loss_info}
+        elif isinstance(loss_info, tuple):
+            assert len(loss_info) == 2, "loss_info需要是一个二元组，第一个是需要反向传播的，第二个是其他参考指标"
+            backward_params, metric_params = loss_info
+            assert isinstance(metric_params, dict), "loss_info的第二个值需要是dict类型"
+            if isinstance(backward_params, torch.Tensor):
+                losses = backward_params
+                metric_params["total_loss"] = backward_params
+                loss_info = metric_params
+            elif isinstance(backward_params, dict):
+                losses = sum(backward_params.values())
+                backward_params["total_loss"] = losses
+                backward_params.update(metric_params)
+                loss_info = backward_params
         else:
-            losses = sum(loss_dict.values())
+            assert "total_loss" not in loss_info, "当model返回是一个dict的时候不可以传出包含"
+            losses = sum(loss_info.values())
+            loss_info["total_loss"] = losses
 
         ##########################
         # 3. 计算梯度 #
@@ -351,9 +370,10 @@ class Trainer:
         ###########################
         self.lr_scheduler.step()
 
-        show_info = {k: v.detach().cpu().item() if isinstance(v, torch.Tensor) else v for k, v in loss_dict.items()}
+        show_info = {k: v.detach().cpu().item() if isinstance(v, torch.Tensor) else v for k, v in loss_info.items()}
+        show_info = dict(sorted(show_info.items(), key=lambda x: x[0] != "total_loss"))  # 保证total_loss在最后一位
         self.pbar.set_postfix(show_info)
-        self._update_iter_metrics(loss_dict, data_time, time.perf_counter() - iter_start_time, lr_this_iter)
+        self._update_iter_metrics(show_info, data_time, time.perf_counter() - iter_start_time, lr_this_iter)
 
     def _train_one_epoch(self) -> None:
         """执行模型一个epoch的全部操作"""
