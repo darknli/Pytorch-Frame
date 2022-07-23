@@ -1,32 +1,12 @@
 from .trainer import Trainer, nn, optim, Optional, List, HookBase, torch
 from torch.utils.data import DataLoader, Dataset, DistributedSampler, RandomSampler
-import torch.distributed as dist
-
-
-def is_dist_avail_and_initialized():
-    if not dist.is_available():
-        return False
-    if not dist.is_initialized():
-        return False
-    return True
-
-
-def get_world_size():
-    if not is_dist_avail_and_initialized():
-        return 1
-    return dist.get_world_size()
-
-
-def get_rank():
-    if not is_dist_avail_and_initialized():
-        return 0
-    return dist.get_rank()
+from .utils.dist_utils import *
 
 
 class DDPTrainer(Trainer):
     """
     Trainer的DDP版本。需要注意的是，在调用该类前依然要执行init_process_group，为了避免重复打印或保存数据，应该在外部选择性
-    的根据gpu_id调用hooker
+    的根据gpu_id调用hooker, 在创建DDPTrainer对象时会自动根据环境判断是否使用ddp，无需手动设置
     """
 
     def __init__(self,
@@ -43,7 +23,6 @@ class DDPTrainer(Trainer):
                  warmup_iters: int = 1000,
                  warmup_factor: float = 0.001,
                  hooks: Optional[List[HookBase]] = None,
-                 use_dist: bool = False,
                  create_new_dir: Optional[str] = "time_s"
                  ):
         """
@@ -76,7 +55,6 @@ class DDPTrainer(Trainer):
             warmup初始学习率 = warmup_factor * initial_lr
         hooks : List[HookBase], default None.
             hooks, 保存模型、输出评估指标、loss等用
-        use_dist : bool, default False. 是否使用ddp
         create_new_dir : Optional[str], default time
             存在同名目录时以何种策略创建目录
             * None, 直接使用同名目录
@@ -86,8 +64,8 @@ class DDPTrainer(Trainer):
             * `time_d`, 如果已经存在同名目录, 则以时间(精确到日)为后缀创建新目录
             * `count`, 如果已经存在同名目录, 则以序号为后缀创建新目录
         """
-
-        if use_dist:
+        self.use_dist = is_dist_avail_and_initialized()
+        if self.use_dist:
             num_tasks = get_world_size()
             global_rank = get_rank()
             sampler_trainer = DistributedSampler(dataset, num_replicas=num_tasks, rank=global_rank)
@@ -97,7 +75,6 @@ class DDPTrainer(Trainer):
         super(DDPTrainer, self).__init__(model, optimizer, lr_scheduler, data_loader, max_epochs, work_dir,
                                          clip_grad_norm, enable_amp,  warmup_method, warmup_iters, warmup_factor,
                                          hooks, create_new_dir)
-        self.use_dist = use_dist
 
     def _train_one_epoch(self) -> None:
         """执行模型一个epoch的全部操作"""

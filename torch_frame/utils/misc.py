@@ -5,13 +5,20 @@ import sys
 from collections import defaultdict
 from typing import Any, Dict
 
+import datetime
 import numpy as np
 import torch
 from tabulate import tabulate
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["set_random_seed", "collect_env", "symlink", "create_small_table"]
+__all__ = [
+    "set_random_seed",
+    "collect_env",
+    "symlink",
+    "create_small_table",
+    "get_workspace"
+]
 
 
 def collect_env() -> str:
@@ -121,3 +128,32 @@ def create_small_table(small_dict: Dict[str, Any]) -> str:
         numalign="center",
     )
     return table
+
+
+def get_workspace(work_dir, create_new_dir):
+    if create_new_dir not in (None, "time_s", "time_m", "time_h", "time_d", "count"):
+        logger.warning("create_new_dir参数输入错误, 使用`time_s`为其赋值")
+        create_new_dir = "time_s"
+    if os.path.exists(work_dir):
+        if create_new_dir == "time_s":
+            now = datetime.datetime.now()
+            now_format = now.strftime("%Y-%m-%d %H_%M_%S")
+            work_dir = f"{work_dir}_{now_format}"
+        elif create_new_dir == "time_m":
+            now = datetime.datetime.now()
+            now_format = now.strftime("%Y-%m-%d %H_%M")
+            work_dir = f"{work_dir}_{now_format}"
+        elif create_new_dir == "time_h":
+            now = datetime.datetime.now()
+            now_format = now.strftime("%Y-%m-%d %H")
+            work_dir = f"{work_dir}_{now_format}"
+        elif create_new_dir == "time_d":
+            now = datetime.datetime.now()
+            now_format = now.strftime("%Y-%m-%d")
+            work_dir = f"{work_dir}_{now_format}"
+        elif create_new_dir == "count":
+            for i in range(10000):
+                if not os.path.exists(f"{work_dir}_{i}"):
+                    break
+            work_dir = f"{work_dir}_{i}"
+    return work_dir

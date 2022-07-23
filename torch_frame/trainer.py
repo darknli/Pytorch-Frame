@@ -4,7 +4,6 @@ import os.path as osp
 import time
 import weakref
 from typing import Any, Dict, List, Optional, Tuple
-from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,9 +12,10 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
-import datetime
 from .hooks import CheckpointerHook, HookBase, LoggerHook
-from .utils import setup_logger
+from .utils import setup_logger, ProgressBar
+from .utils.misc import get_workspace
+from .utils.dist_utils import get_rank
 from .lr_scheduler import LRWarmupScheduler
 from .utils import HistoryBuffer
 from ._get_logger import logger
@@ -96,31 +96,7 @@ class Trainer:
         """
         logger.setLevel(logging.INFO)
 
-        if create_new_dir not in (None, "time_s", "time_m", "time_h", "time_d", "count"):
-            logger.warning("create_new_dir参数输入错误, 使用`time_s`为其赋值")
-            create_new_dir = "time_s"
-        if os.path.exists(work_dir):
-            if create_new_dir == "time_s":
-                now = datetime.datetime.now()
-                now_format = now.strftime("%Y-%m-%d %H_%M_%S")
-                work_dir = f"{work_dir}_{now_format}"
-            elif create_new_dir == "time_m":
-                now = datetime.datetime.now()
-                now_format = now.strftime("%Y-%m-%d %H_%M")
-                work_dir = f"{work_dir}_{now_format}"
-            elif create_new_dir == "time_h":
-                now = datetime.datetime.now()
-                now_format = now.strftime("%Y-%m-%d %H")
-                work_dir = f"{work_dir}_{now_format}"
-            elif create_new_dir == "time_d":
-                now = datetime.datetime.now()
-                now_format = now.strftime("%Y-%m-%d")
-                work_dir = f"{work_dir}_{now_format}"
-            elif create_new_dir == "count":
-                for i in range(10000):
-                    if not os.path.exists(f"{work_dir}_{i}"):
-                        break
-                work_dir = f"{work_dir}_{i}"
+        self.work_dir = get_workspace(work_dir, create_new_dir)
 
         self.model = model
         self.optimizer = optimizer
@@ -129,7 +105,6 @@ class Trainer:
             lr_scheduler, len(data_loader), warmup_method, warmup_iters, warmup_factor
         )
         self.data_loader = data_loader
-        self.work_dir = work_dir
         self.metric_storage = MetricStorage()
 
         # counters
@@ -150,8 +125,11 @@ class Trainer:
             logger.info("自动混合精度 (AMP) 训练")
             self._grad_scaler = GradScaler()
 
+        self.rank = get_rank()
         if hooks is None:
             self.register_hooks(self._build_default_hooks())
+        elif self.rank != 0:
+            logger.warning(f"{self.rank}号卡也被传入了hook, 将被自动忽略")
         else:
             self.register_hooks(hooks)
 
@@ -378,7 +356,7 @@ class Trainer:
     def _train_one_epoch(self) -> None:
         """执行模型一个epoch的全部操作"""
         self.model.train()
-        self.pbar = tqdm(total=self.epoch_len, desc=f"epoch={self.epoch}", ascii=True)
+        self.pbar = ProgressBar(total=self.epoch_len, desc=f"epoch={self.epoch}", ascii=True)
         for self.inner_iter in range(self.epoch_len):
             self._call_hooks("before_iter")
             self.train_one_iter()
