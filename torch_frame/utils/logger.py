@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 from typing import Optional
-
+from .dist_utils import get_rank
 from termcolor import colored
 
 logger_initialized = {}
@@ -27,7 +27,6 @@ def setup_logger(
     output: Optional[str] = None,
     console_log_level: int = logging.INFO,
     file_log_level: int = logging.INFO,
-    rank: int = 0,
     color: bool = False,
 ) -> logging.Logger:
     """
@@ -82,8 +81,6 @@ def setup_logger(
         logger输出到控制台/终端的等级
     file_log_level : int, default logging.INFO
         logger输出到文件的等级
-    rank : int, default 0
-        分布式训练中进程等级
     color : bool, default False
         如果是True，logger将会有颜色
 
@@ -105,7 +102,7 @@ def setup_logger(
     )
 
     # stdout and file logging: master only
-    if rank == 0:
+    if get_rank() == 0:
         ch = logging.StreamHandler(stream=sys.stdout)
         ch.setLevel(console_log_level)
         if color:

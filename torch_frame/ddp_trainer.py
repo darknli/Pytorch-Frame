@@ -1,4 +1,5 @@
-from .trainer import Trainer, nn, optim, Optional, List, HookBase, torch
+from .trainer import Trainer, nn, optim, Optional, List, HookBase, setup_logger, logger
+import os
 from torch.utils.data import DataLoader, Dataset, DistributedSampler, RandomSampler
 from .utils.dist_utils import *
 
@@ -83,5 +84,39 @@ class DDPTrainer(Trainer):
             self.data_loader.sampler.set_epoch(self.epoch)
         super(DDPTrainer, self)._train_one_epoch()
 
+    def _prepare_for_training(self,
+                              console_log_level: int = 2,
+                              file_log_level: int = 2) -> None:
+        """
+        训练前的配置工作
+        Parameters
+        ----------
+        console_log_level : int, default 2
+             输出到屏幕的log等级, 可选范围是0-5, 它们对应的关系分别为：
+             * 5: FATAL
+             * 4: ERROR
+             * 3: WARNING
+             * 2: INFO
+             * 1: DEBUG
+             * 0: NOTSET
+        file_log_level : int, default 2
+             输出到文件里的log等级, 其他方面同console_log_level参数
+        """
+        assert console_log_level in (0, 1, 2, 3, 4, 5), f"console_log_level必须在0~5之间而不是{console_log_level}"
+        assert file_log_level in (0, 1, 2, 3, 4, 5), f"file_log_level必须在0~5之间而不是{file_log_level}"
+        console_log_level *= 10
+        file_log_level *= 10
+        setup_logger("torch_frame", output=self.log_file,
+                     console_log_level=console_log_level, file_log_level=file_log_level)
+
+        if self.start_epoch == 0 and get_rank() == 0:
+            os.makedirs(self.ckpt_dir, exist_ok=True)
+            logger.info(f"Registered default hooks: {self.registered_hook_names}")
+            split_line = "-" * 50
+            logger.info(
+                f"\n{split_line}\n"
+                f"Work directory: {self.work_dir}\n"
+                f"{split_line}"
+            )
 
         
