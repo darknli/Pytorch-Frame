@@ -143,7 +143,7 @@ class ObjDetMAPMetric(ModelMetric):
 
     def evaluate(self):
         aps = eval_map(self.all_gt_boxes, self.all_pred_boxes)
-        new_aps = {f"ap_{k}": v for k, v in aps}
+        new_aps = {f"ap_{k}": v for k, v in aps.items()}
         new_aps["map"] = np.mean(list(new_aps.values()))
         return new_aps
 
