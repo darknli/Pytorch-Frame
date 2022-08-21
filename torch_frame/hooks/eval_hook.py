@@ -1,42 +1,9 @@
 from typing import Callable, Optional
 from tqdm import tqdm
 import torch
-from torch.utils.data import DataLoader, Dataset, DistributedSampler, RandomSampler
+from torch.utils.data.dataloader import DataLoader
 from .checkpoint_hook import CheckpointerHook
 import numpy as np
-from ..utils.dist_utils import *
-from ..utils import ProgressBar
-from .._get_logger import logger
-import pickle
-
-
-def collect_result_gpu(result_part):
-    """收集多卡的结果放到0号卡上"""
-    result_part = [result_part]
-    rank, world_size = get_rank(), get_world_size()
-    part_tensor = torch.tensor(bytearray(pickle.dumps(result_part)), dtype=torch.uint8, device="cuda")
-    shape_tensor = torch.tensor(part_tensor.shape, device="cuda")
-    shape_list = [shape_tensor.clone() for _ in range(world_size)]
-    dist.all_gather(shape_list, shape_tensor)
-    shape_max = torch.tensor(shape_list).max()
-    part_send = torch.zeros(shape_max, dtype=torch.uint8, device="cuda")
-    part_send[:shape_tensor[0]] = part_tensor
-    part_recv_list = [part_tensor.new_zeros(shape_max) for _ in range(world_size)]
-    dist.all_gather(part_recv_list, part_send)
-
-    if rank > 0:
-        return
-    part_list = []
-    for recv, shape in zip(part_recv_list, shape_list):
-        part_list.append(
-            pickle.loads(recv[:shape[0]].cpu().numpy().tobytes())
-        )
-    final_res = part_list[0][0]
-    for res in part_list[1:]:
-        res = res[0]
-        for k in final_res:
-            final_res[k].extend(res[k])
-    return final_res
 
 
 class EvalHook(CheckpointerHook):
@@ -59,7 +26,7 @@ class EvalHook(CheckpointerHook):
         dataloader : DataLoader.
             测试数据的dataloader
         eval_func : Callable.
-            一个函数, 没有输入参数, 返回一个评估结果的Dict[list], k对应指标名称, v是包含每个样本得分的list
+            一个函数, 输入参数是model和batch, 返回一个评估结果的Dict[list], k对应指标名称, v是包含每个样本得分的list
         period : int, default 1.
             执行eval_func函数的周期
         max_to_keep : int, 保存checkpoints的数量, 更早期的checkpoints会被删除
@@ -75,32 +42,35 @@ class EvalHook(CheckpointerHook):
         self._eval_func = eval_func
         self.dataloader = dataloader
 
+    @torch.no_grad()
     def _do_eval(self):
         tot_res = {}
         self.trainer.model.eval()
-        with torch.no_grad():
-            with tqdm(self.dataloader, desc="eval") as pbar:
-                for batch in pbar:
-                    res = self._eval_func(self.trainer.model, batch)
-                    for k, v in res.items():
-                        tot_res.setdefault(k, []).extend(v)
+        with tqdm(self.dataloader, desc="eval") as pbar:
+            for batch in pbar:
+                res = self._eval_func(self.trainer.model, batch)
+                for k, v in res.items():
+                    tot_res.setdefault(k, []).extend(v)
         self.trainer.model.train()
         if tot_res:
             rename_res = {self.prefix + k: np.mean(v) for k, v in tot_res.items()}
             self.log(self.trainer.epoch, **rename_res, smooth=False, window_size=1)
 
-    def after_epoch(self):
+    def before_epoch(self):
         if self.every_n_epochs(self._period) or self.is_last_epoch():
             self._do_eval()
             self.save_model()
 
 
-class DDPEvalHook(CheckpointerHook):
-    """`EvalHook`类的DDP版本，支持多卡预测数据集，但需要注意每张卡的模型应该保持一致"""
+class EvalTotalHook(CheckpointerHook):
+    """
+    `CheckpointerHook` 的派生类, 周期性执行的评估器, 在每个epoch的最后阶段执行.
+    与`EvalHook`评估器区别是: 一个是每个batch都去评估, 最后求每次评估结果的均值; 一个是先把batch结果存下来, 最后一起评估
+    """
+
     def __init__(self,
-                 dataset: Dataset,
-                 dataset_params: dict,
-                 eval_func: Callable,
+                 dataloader: DataLoader,
+                 eval_metric: object,
                  period: int = 1,
                  max_to_keep: Optional[int] = None,
                  save_metric: Optional[str] = None,
@@ -112,12 +82,12 @@ class DDPEvalHook(CheckpointerHook):
 
         Parameters
         ----------
-        dataset : Dataset.
-            测试数据的dataset
-        dataset_params: dict.
-            dataset传入dataloader时的参数
-        eval_func : Callable.
-            一个函数, 没有输入参数, 返回一个评估结果的Dict[list], k对应指标名称, v是包含每个样本得分的list
+        dataloader : DataLoader.
+            测试数据的dataloader
+        eval_metric : object.
+            一个对象, 需要包含`update`和`evaluate`方法. 其中:
+            * `update`方法, 需要输入参数是model和batch, 无返回值, 建议在内部存储当前batch的值
+            * `evaluate`方法, 无形参, return的是一个Dict[str, float]类型的评估结果
         period : int, default 1.
             执行eval_func函数的周期
         max_to_keep : int, 保存checkpoints的数量, 更早期的checkpoints会被删除
@@ -129,38 +99,25 @@ class DDPEvalHook(CheckpointerHook):
             是否保存最近一次的epoch的模型, 如果是True, 每轮将更新模型到latest.pth中
         """
         self.prefix = prefix+"_"
-        super(DDPEvalHook, self).__init__(period, max_to_keep, self.prefix + save_metric, max_first, save_last)
-        self._eval_func = eval_func
-
-        self.use_dist = torch.cuda.device_count() > 1
-        if self.use_dist:
-            num_tasks = get_world_size()
-            sampler = DistributedSampler(dataset, num_replicas=num_tasks, rank=global_rank, shuffle=True)
-        else:
-            logger.warning("检测到该环境不支持多卡，退回普通eval_hook")
-            sampler = RandomSampler(dataset)
-        self.dataloader = DataLoader(dataset, sampler=sampler, **dataset_params)
-        self.rank = get_rank()
+        super(EvalTotalHook, self).__init__(period, max_to_keep, self.prefix + save_metric, max_first, save_last)
+        assert hasattr(eval_metric, "update") and isinstance(getattr(eval_metric, "update"), Callable)
+        assert hasattr(eval_metric, "evaluate") and isinstance(getattr(eval_metric, "evaluate"), Callable)
+        self._eval_metric = eval_metric
+        self.dataloader = dataloader
 
     @torch.no_grad()
     def _do_eval(self):
-        tot_res = {}
         self.trainer.model.eval()
-        pbar = ProgressBar(total=len(self.dataloader), desc="eval")
-        for batch in self.dataloader:
-            res = self._eval_func(self.trainer.model, batch)
-            for k, v in res.items():
-                tot_res.setdefault(k, []).extend(v)
-            pbar.update(1)
+        with tqdm(self.dataloader, desc="eval") as pbar:
+            for batch in pbar:
+                self._eval_metric.update(self.trainer.model, batch)
         self.trainer.model.train()
-        if self.use_dist:
-            tot_res = collect_result_gpu(tot_res)
-        if self.rank == 0 and tot_res:
+        tot_res = self._eval_metric.evaluate()
+        if tot_res:
             rename_res = {self.prefix + k: np.mean(v) for k, v in tot_res.items()}
             self.log(self.trainer.epoch, **rename_res, smooth=False, window_size=1)
 
     def after_epoch(self):
         if self.every_n_epochs(self._period) or self.is_last_epoch():
             self._do_eval()
-            if self.rank == 0:
-                self.save_model()
+            self.save_model()

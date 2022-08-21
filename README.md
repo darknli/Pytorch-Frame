@@ -1,6 +1,19 @@
 # Pytorch Frame
 原代码来自https://github.com/machineko/coreml_torch_utils
 ，此为改版
+# 更新
+* v1.6.3 
+  * 添加了EvalTotalHook，在所有数据跑完之后才开始计算指标。
+  * 添加了metric模块，并增加了目标检测评估指标MAP的metric。
+  * 调整了代码层级结构，使其扩展性更强。
+* v1.6.2
+  * 完善了training时每个step模型返回的类型，支持：
+    * torch.Tensor，返回的是需要backward的tensor，即为total loss
+    * dict，返回的是各路loss头，需要注意的是，这种不应加入total loss，因为torch-frame会自动合并其结果给出total loss
+    * tuple， 二元组，分别为
+      * backward_params：跟梯度回传、模型参数更新有关，可选torch.Tensor或dict，参考前两种
+      * metric_params：dict，纯指标参数，不参与梯度回传
+
 # 安装
 pip install torch-frame
 

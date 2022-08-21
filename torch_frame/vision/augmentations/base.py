@@ -8,8 +8,8 @@ __all__ = [
 ]
 
 
-def mixup(img1: np.ndarray, boxes1: np.ndarray, img2: np.ndarray, boxes2: np.ndarray,
-                mixup_scale: float = 0.1, wh_thr: int = 10):
+def mixup(img1: np.ndarray, img2: np.ndarray,
+                mixup_scale: float = 0.1):
     def translate(image, h, w, alpha):
         y_offset = random.randint(0, dst_img.shape[0] - h)
         x_offset = random.randint(0, dst_img.shape[1] - w)
