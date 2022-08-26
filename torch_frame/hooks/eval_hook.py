@@ -56,7 +56,7 @@ class EvalHook(CheckpointerHook):
             rename_res = {self.prefix + k: np.mean(v) for k, v in tot_res.items()}
             self.log(self.trainer.epoch, **rename_res, smooth=False, window_size=1)
 
-    def before_epoch(self):
+    def after_epoch(self):
         if self.every_n_epochs(self._period) or self.is_last_epoch():
             self._do_eval()
             self.save_model()

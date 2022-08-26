@@ -61,9 +61,10 @@ class ObjDetMAPMetric(ModelMetric):
     def __init__(self,
                  class2idx: Dict[str, int],
                  is_xyxy: bool = False,
+                 ovthresh: float = 0.5,
                  postprocess: Optional[Callable] = None,
                  confthre: float = 0.7,
-                 nmsthre: float = 0.45
+                 nmsthre: float = 0.45,
                  ):
         """
         Parameters
@@ -72,6 +73,7 @@ class ObjDetMAPMetric(ModelMetric):
         is_xyxy: bool, default False. gt框类型
             * False. gt目标框是[cx, cy, w, h]类型
             * True. gt目标框是[x1, y1, x2, y2]类型
+        ovthresh : float, default 0.5. 计算AP时，pred和gt被认为是TP（true positive）的iou阈值
         postprocess : Optional[Callable], default None. 承接模型推理后的后处理
             * None, 则默认Yolo风格的内置函数det_postprocess
             * Callable, 返回是一个list或np.ndarray. 每一行是[x1, y1, x2, y2, score, cls]
@@ -80,6 +82,7 @@ class ObjDetMAPMetric(ModelMetric):
         """
         self.class2idx = class2idx
         self.is_xyxy = is_xyxy
+        self.ovthresh = ovthresh
         self.idx2class = {cls: idx for cls, idx in class2idx.items()}
         if postprocess is not None:
             self.postprocess = postprocess
@@ -142,7 +145,7 @@ class ObjDetMAPMetric(ModelMetric):
                     self.all_gt_boxes[cls_name].append(image_cls_boxes)
 
     def evaluate(self):
-        aps = eval_map(self.all_gt_boxes, self.all_pred_boxes)
+        aps = eval_map(self.all_gt_boxes, self.all_pred_boxes, self.ovthresh)
         new_aps = {f"ap_{k}": v for k, v in aps.items()}
         new_aps["map"] = np.mean(list(new_aps.values()))
         return new_aps

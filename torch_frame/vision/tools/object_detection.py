@@ -403,9 +403,9 @@ def clac_voc_ap(annotation, prediction, ovthresh=0.5):
     return recall, precision, ap
 
 
-def eval_map(annotation_result, detector_result):
+def eval_map(annotation_result, detector_result, ovthresh=0.5):
     aps = {}
     for cls in annotation_result.keys():
-        recall, precision, ap = clac_voc_ap(annotation_result[cls], detector_result[cls], ovthresh=0.5)
+        recall, precision, ap = clac_voc_ap(annotation_result[cls], detector_result[cls], ovthresh=ovthresh)
         aps[cls] = ap
     return aps
