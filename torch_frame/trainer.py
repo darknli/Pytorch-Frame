@@ -410,7 +410,9 @@ class Trainer:
         Parameters
         ----------
         file_name : str, 保存文件名
-        save_single_model : bool, default True. 如果是True, 还会额外保存一个只有模型参数的文件到best_model.pth
+        save_single_model : bool, default True.
+            * True, 会保存模型参数本身
+            * False, 会保存包含模型、hook及优化器等权重
         print_info : bool, default True. 如果是True, 则输出保存模型的提示信息
         """
 

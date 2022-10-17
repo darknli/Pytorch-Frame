@@ -113,6 +113,7 @@ class EvalTotalHook(CheckpointerHook):
                 self._eval_metric.update(self.trainer.model, batch)
         self.trainer.model.train()
         tot_res = self._eval_metric.evaluate()
+        self._eval_metric.reset()
         if tot_res:
             rename_res = {self.prefix + k: np.mean(v) for k, v in tot_res.items()}
             self.log(self.trainer.epoch, **rename_res, smooth=False, window_size=1)

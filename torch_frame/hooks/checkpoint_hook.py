@@ -35,7 +35,8 @@ class CheckpointerHook(HookBase):
         self._period = period
         assert max_to_keep is None or max_to_keep > 0
         self._max_to_keep = max_to_keep
-
+        if save_metric is None:
+            logger.warning("没有指定保存模型的指标，因此每period都将保存模型")
         self.save_metric = save_metric
         if max_first:
             self.cur_best = float("-inf")
