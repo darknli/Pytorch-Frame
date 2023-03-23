@@ -21,7 +21,7 @@ class RandomBrightness:
     def __call__(self, image):
         if random() < self.p:
             return image
-        image = image.astype(np.float)
+        image = image.astype(np.float32)
         brightness = randint(self.low, self.high)
         image[:, :, :] += brightness
         image = np.clip(image, 0, 255).astype(np.uint8)
@@ -66,7 +66,7 @@ class RandomHueSaturation:
         s = image[:, :, 1]
         s *= random_s
         # 一定要先转uint8
-        image = cv2.cvtColor(image.astype(np.uint8), cv2.cv2.COLOR_HSV2BGR)
+        image = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_HSV2BGR)
         return image
 
 
@@ -83,7 +83,7 @@ class RandomContrast:
     def __call__(self, image):
         if random() < self.p:
             return image
-        image = image.astype(np.float)
+        image = image.astype(np.float32)
         contrast = uniform(self.low, self.high)
         image[:, :, :] *= contrast
         image = np.clip(image, 0, 255).astype(np.uint8)
