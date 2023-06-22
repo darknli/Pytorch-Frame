@@ -114,7 +114,6 @@ class Trainer:
         self.max_epochs = max_epochs
 
         self._hooks: List[HookBase] = []
-        self._data_iter = iter(data_loader)
         self._clip_grad_norm = clip_grad_norm
         if not torch.cuda.is_available():
             enable_amp = False
@@ -274,7 +273,7 @@ class Trainer:
 
         self.log(self.cur_iter, **loss_dict)
 
-    def train_one_iter(self) -> None:
+    def train_one_iter(self, batch) -> None:
         """
         包含了训练的一个iter的全部操作
 
@@ -288,9 +287,6 @@ class Trainer:
         # 1. 加载一个batch的数据 #
         ######################
         # 这里读取生成器的数据而非data_loader这是为了计算加载数据的耗时
-        start = time.perf_counter()
-        batch = next(self._data_iter)
-        data_time = time.perf_counter() - start
 
         #####################
         # 2. 计算loss #
@@ -351,20 +347,23 @@ class Trainer:
         show_info = {k: v.detach().cpu().item() if isinstance(v, torch.Tensor) else v for k, v in loss_info.items()}
         show_info = dict(sorted(show_info.items(), key=lambda x: x[0] != "total_loss"))  # 保证total_loss在最后一位
         self.pbar.set_postfix(show_info)
-        self._update_iter_metrics(show_info, data_time, time.perf_counter() - iter_start_time, lr_this_iter)
+        self._update_iter_metrics(show_info, self.data_time, time.perf_counter() - iter_start_time, lr_this_iter)
 
     def _train_one_epoch(self) -> None:
         """执行模型一个epoch的全部操作"""
         self.model.train()
         self.pbar = ProgressBar(total=self.epoch_len, desc=f"epoch={self.epoch}", ascii=True)
-        for self.inner_iter in range(self.epoch_len):
+
+        start = time.perf_counter()
+        for self.inner_iter, batch in enumerate(self.data_loader):
+            self.data_time = time.perf_counter() - start
             self._call_hooks("before_iter")
-            self.train_one_iter()
+            self.train_one_iter(batch)
             self._call_hooks("after_iter")
             self.pbar.update(1)
+            start = time.perf_counter()
         self.pbar.close()
         del self.pbar
-        self._data_iter = iter(self.data_loader)
 
     def train(self,
               console_log_level: int = 2,
