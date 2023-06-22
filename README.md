@@ -1,7 +1,8 @@
 # Pytorch Frame
 原代码来自https://github.com/machineko/coreml_torch_utils
 ，此为改版
-# 更新
+# 版本更新
+## v1.6 相关更新
 * v1.6.3 
   * 添加了EvalTotalHook，在所有数据跑完之后才开始计算指标。
   * 添加了metric模块，并增加了目标检测评估指标MAP的metric。
@@ -13,6 +14,23 @@
     * tuple， 二元组，分别为
       * backward_params：跟梯度回传、模型参数更新有关，可选torch.Tensor或dict，参考前两种
       * metric_params：dict，纯指标参数，不参与梯度回传
+* v1.6.3
+  * 调整代码结构，增强通用性
+  * 加入多卡计算验证集指标的hook
+* v1.6.4
+  * 加入目标检测map的metric和相应的hook
+* v1.6.5
+  * 修复EvalTotalHook bug
+* v1.6.6
+  * 加入gpu型号性能评估的函数gpu_cnn_speed
+* v1.6.7
+  * 优化打印日志体验
+* v1.6.8
+  * 修复个别环境colors模块调用崩溃的问题
+## v1.7 相关更新
+* v1.7.0
+  * 取消iter机制，减少每个epoch开始之前的卡顿
+  * 加入高效获取数据的模块，如InfiniteDataLoader
 
 # 安装
 pip install torch-frame
