@@ -1,4 +1,5 @@
 import os
+import pickle
 import os.path as osp
 from typing import Any, Dict, List, Optional
 from types import LambdaType
@@ -84,6 +85,10 @@ class CheckpointerHook(HookBase):
             if key == "trainer" or isinstance(value, LambdaType):
                 continue
             state[key] = value
+            try:
+                pickle.dumps(value)
+            except BaseException:
+                continue
         return state
 
     def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
