@@ -12,7 +12,7 @@ setuptools.setup(
     name="torch-frame",  # 库名, 需要在pypi中唯一
     version="1.6.8",  # 版本号
     author="Darkn Lxs",  # 作者
-    author_email="1187220556@qq.com", # 作看都将（方便使用索类现问图后成我我们）
+    author_email="1187220556@qq.com",  # 作看都将（方便使用索类现问图后成我我们）
     description="用于深度学习快速实现代码的框架",  # 简介
     long_description="见readme",  # 详细描述（一般会写在README.md中）
     long_description_content_type="text/markdown",  # README.md中描述的语法（一般为markdown)
@@ -25,9 +25,12 @@ setuptools.setup(
     ],
     install_requires=[  # 该库需要的依前库
         "termcolor",
+        "numpy",
         "opencv-python",
         "tabulate",
         "torch",
+        "pyyaml",
+        "tqdm"
     ],
     python_requires='>=3.6',
 )
