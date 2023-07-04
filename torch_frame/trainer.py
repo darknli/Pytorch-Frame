@@ -273,15 +273,13 @@ class Trainer:
 
         self.log(self.cur_iter, **loss_dict)
 
-    def train_one_iter(self, batch) -> None:
+    def train_one_iter(self, batch) -> dict:
         """
         包含了训练的一个iter的全部操作
 
         .. Note::
             标准的学习率调节器是基于epoch的, 但torch_frame框架是基于iter的, 所以它在每次iter之后都会调用
         """
-        iter_start_time = time.perf_counter()
-        lr_this_iter = self.lr
 
         ######################
         # 1. 加载一个batch的数据 #
@@ -347,21 +345,23 @@ class Trainer:
         show_info = {k: v.detach().cpu().item() if isinstance(v, torch.Tensor) else v for k, v in loss_info.items()}
         show_info = dict(sorted(show_info.items(), key=lambda x: x[0] != "total_loss"))  # 保证total_loss在最后一位
         self.pbar.set_postfix(show_info)
-        self._update_iter_metrics(show_info, self.data_time, time.perf_counter() - iter_start_time, lr_this_iter)
+        return show_info
 
     def _train_one_epoch(self) -> None:
         """执行模型一个epoch的全部操作"""
         self.model.train()
         self.pbar = ProgressBar(total=self.epoch_len, desc=f"epoch={self.epoch}", ascii=True)
 
-        start = time.perf_counter()
+        start_time_data = time.perf_counter()
         for self.inner_iter, batch in enumerate(self.data_loader):
-            self.data_time = time.perf_counter() - start
+            start_time_iter = time.perf_counter()
+            data_time = start_time_iter - start_time_data
             self._call_hooks("before_iter")
-            self.train_one_iter(batch)
+            show_info = self.train_one_iter(batch)
             self._call_hooks("after_iter")
+            self._update_iter_metrics(show_info, data_time, time.perf_counter() - start_time_data, self.lr)
             self.pbar.update(1)
-            start = time.perf_counter()
+            start_time_data = time.perf_counter()
         self.pbar.close()
         del self.pbar
 

@@ -84,11 +84,11 @@ class CheckpointerHook(HookBase):
         for key, value in self.__dict__.items():
             if key == "trainer" or isinstance(value, LambdaType):
                 continue
-            state[key] = value
             try:
                 pickle.dumps(value)
             except BaseException:
                 continue
+            state[key] = value
         return state
 
     def load_state_dict(self, state_dict: Dict[str, Any]) -> None:

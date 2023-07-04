@@ -31,6 +31,10 @@
 * v1.7.0
   * 取消iter机制，减少每个epoch开始之前的卡顿
   * 加入高效获取数据的模块，如InfiniteDataLoader
+* v1.7.1
+  * 修复checkpoint_hook在win系统下保存参数崩溃的问题
+* v1.7.2
+  * 优化体验
 
 # 安装
 pip install torch-frame
