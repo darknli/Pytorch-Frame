@@ -45,13 +45,14 @@ class EvalHook(CheckpointerHook):
     @torch.no_grad()
     def _do_eval(self):
         tot_res = {}
-        self.trainer.model.eval()
+        mode_model = self.trainer.model_evaluate.training
+        self.trainer.model_evaluate.eval()
         with tqdm(self.dataloader, desc="eval") as pbar:
             for batch in pbar:
-                res = self._eval_func(self.trainer.model, batch)
+                res = self._eval_func(self.trainer.model_evaluate, batch)
                 for k, v in res.items():
                     tot_res.setdefault(k, []).extend(v)
-        self.trainer.model.train()
+        self.trainer.model_evaluate.train(mode_model)
         if tot_res:
             rename_res = {self.prefix + k: np.mean(v) for k, v in tot_res.items()}
             self.log(self.trainer.epoch, **rename_res, smooth=False, window_size=1)
@@ -107,11 +108,12 @@ class EvalTotalHook(CheckpointerHook):
 
     @torch.no_grad()
     def _do_eval(self):
-        self.trainer.model.eval()
+        mode_model = self.trainer.model_evaluate.training
+        self.trainer.model_evaluate.eval()
         with tqdm(self.dataloader, desc="eval") as pbar:
             for batch in pbar:
-                self._eval_metric.update(self.trainer.model, batch)
-        self.trainer.model.train()
+                self._eval_metric.update(self.trainer.model_evaluate, batch)
+        self.trainer.model_evaluate.train(mode_model)
         tot_res = self._eval_metric.evaluate()
         self._eval_metric.reset()
         if tot_res:

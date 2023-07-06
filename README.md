@@ -35,6 +35,8 @@
   * 修复checkpoint_hook在win系统下保存参数崩溃的问题
 * v1.7.2
   * 优化体验
+* v1.7.3
+  * 加入ema模块
 
 # 安装
 pip install torch-frame

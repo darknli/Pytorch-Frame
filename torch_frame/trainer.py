@@ -13,11 +13,10 @@ from torch.nn.parallel import DataParallel, DistributedDataParallel
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 from .hooks import CheckpointerHook, HookBase, LoggerHook
-from .utils import setup_logger, ProgressBar
+from .utils import setup_logger, ProgressBar, HistoryBuffer, EMA
 from .utils.misc import get_workspace
 from .utils.dist_utils import get_rank
 from .lr_scheduler import LRWarmupScheduler
-from .utils import HistoryBuffer
 from ._get_logger import logger
 
 
@@ -38,6 +37,43 @@ class Trainer:
         # 训练100轮
         trainer = Trainer(model, optimizer, lr_scheduler, data_loader, max_epochs=100)
         trainer.train()
+
+    Parameters
+    ---------
+    model : torch.nn.Module, 训练模型, 训练时的输出只能是以下三种:
+        * torch.Tensor, 对于这种输出是模型backward用的loss, 在torch-frame框架中被称为total_loss
+        * dict, 里面是模型的各路分支的loss，需要是标量, Trainer会自动将其求和得到total_loss, 再做backward
+        * Tuple[Union[dict, torch.Tensor], dict]. 前两种的混合体, 元组第一个输出是前面两种的任意一种;
+          第二个输出是非需要backward类的, Trainer不会把这个dict汇总到total_loss上
+    optimizer : torch.optim.Optimizer, 优化器
+    lr_scheduler : optim.lr_scheduler._LRScheduler, 学习率调节器
+    data_loader : torch.utils.data.DataLoader, 数据生成器
+    max_epochs : int, 训练的总轮数
+    work_dir : str, 保存模型和日志的根目录地址
+    clip_grad_norm : float, default 0.0
+        梯度裁剪的设置, 如果置为小于等于0, 则不作梯度裁剪
+    enable_amp : bool, 使用混合精度
+    warmup_method : str, default None
+        warmup的类型, 包含以下四种取值
+        * constant
+        * linear
+        * exp
+        * None : 不使用warmup
+    warmup_iters : int, default 1000, warmup最后的iter数
+    warmup_factor : float, default 0.001
+        warmup初始学习率 = warmup_factor * initial_lr
+    hooks : List[HookBase], default None.
+        hooks, 保存模型、输出评估指标、loss等用
+    use_ema : bool, default False. 是否使用EMA技术
+    ema_decay: float = 0.9999. EMA模型衰减系数
+    create_new_dir : Optional[str], default time
+        存在同名目录时以何种策略创建目录
+        * None, 直接使用同名目录
+        * `time_s`, 如果已经存在同名目录, 则以时间(精确到秒)为后缀创建新目录
+        * `time_m`, 如果已经存在同名目录, 则以时间(精确到分)为后缀创建新目录
+        * `time_h`, 如果已经存在同名目录, 则以时间(精确到小时)为后缀创建新目录
+        * `time_d`, 如果已经存在同名目录, 则以时间(精确到日)为后缀创建新目录
+        * `count`, 如果已经存在同名目录, 则以序号为后缀创建新目录
     """
 
     def __init__(
@@ -54,51 +90,19 @@ class Trainer:
             warmup_iters: int = 1000,
             warmup_factor: float = 0.001,
             hooks: Optional[List[HookBase]] = None,
+            use_ema: bool = False,
+            ema_decay: float = 0.9999,
             create_new_dir: Optional[str] = "time_s"
     ):
-        """
-        初始化
-
-        Parameters
-        ---------
-        model : torch.nn.Module, 训练模型, 训练时的输出只能是以下三种:
-            * torch.Tensor, 对于这种输出是模型backward用的loss, 在torch-frame框架中被称为total_loss
-            * dict, 里面是模型的各路分支的loss，需要是标量, Trainer会自动将其求和得到total_loss, 再做backward
-            * Tuple[Union[dict, torch.Tensor], dict]. 前两种的混合体, 元组第一个输出是前面两种的任意一种;
-              第二个输出是非需要backward类的, Trainer不会把这个dict汇总到total_loss上
-        optimizer : torch.optim.Optimizer, 优化器
-        lr_scheduler : optim.lr_scheduler._LRScheduler, 学习率调节器
-        data_loader : torch.utils.data.DataLoader, 数据生成器
-        max_epochs : int, 训练的总轮数
-        work_dir : str, 保存模型和日志的根目录地址
-        clip_grad_norm : float, default 0.0
-            梯度裁剪的设置, 如果置为小于等于0, 则不作梯度裁剪
-        enable_amp : bool, 使用混合精度
-        warmup_method : str, default None
-            warmup的类型, 包含以下四种取值
-            * constant
-            * linear
-            * exp
-            * None : 不使用warmup
-        warmup_iters : int, default 1000, warmup最后的iter数
-        warmup_factor : float, default 0.001
-            warmup初始学习率 = warmup_factor * initial_lr
-        hooks : List[HookBase], default None.
-            hooks, 保存模型、输出评估指标、loss等用
-        create_new_dir : Optional[str], default time
-            存在同名目录时以何种策略创建目录
-            * None, 直接使用同名目录
-            * `time_s`, 如果已经存在同名目录, 则以时间(精确到秒)为后缀创建新目录
-            * `time_m`, 如果已经存在同名目录, 则以时间(精确到分)为后缀创建新目录
-            * `time_h`, 如果已经存在同名目录, 则以时间(精确到小时)为后缀创建新目录
-            * `time_d`, 如果已经存在同名目录, 则以时间(精确到日)为后缀创建新目录
-            * `count`, 如果已经存在同名目录, 则以序号为后缀创建新目录
-        """
         logger.setLevel(logging.INFO)
 
         self.work_dir = get_workspace(work_dir, create_new_dir)
 
         self.model = model
+        if use_ema:
+            self.model_ema = EMA(self.model_or_module, ema_decay)
+        else:
+            self.model_ema = None
         self.optimizer = optimizer
         # convert epoch-based scheduler to iteration-based scheduler
         self.lr_scheduler = LRWarmupScheduler(
@@ -173,6 +177,13 @@ class Trainer:
         return self.model
 
     @property
+    def model_evaluate(self) -> nn.Module:
+        """评估用的模型"""
+        if self.model_ema:
+            return self.model_ema.model
+        return self.model_or_module
+
+    @property
     def registered_hook_names(self) -> List[str]:
         """注册的所有hook名字"""
         return [h.__class__.__name__ for h in self._hooks]
@@ -210,7 +221,6 @@ class Trainer:
 
         os.makedirs(self.ckpt_dir, exist_ok=True)
         if self.start_epoch == 0:
-            logger.info(f"Registered default hooks: {self.registered_hook_names}")
             split_line = "-" * 50
             logger.info(
                 f"\n{split_line}\n"
@@ -240,6 +250,7 @@ class Trainer:
                 self._hooks.insert(len(self._hooks) - 1, h)
             else:
                 self._hooks.append(h)
+        logger.warning(f"Registered default hooks: {self.registered_hook_names}")
 
     def _call_hooks(self, stage: str) -> None:
         for h in self._hooks:
@@ -252,7 +263,7 @@ class Trainer:
         ]
 
     def _update_iter_metrics(self, loss_dict: Dict[str, torch.Tensor], data_time: float,
-                          iter_time: float, lr: float) -> None:
+                             iter_time: float, lr: float) -> None:
         """
         每个iter评估的log
         Parameters
@@ -336,6 +347,8 @@ class Trainer:
             self._grad_scaler.update()
         else:
             self.optimizer.step()
+        if self.model_ema:
+            self.model_ema.update(self.model)
 
         ###########################
         # 5. 调整学习率 #
@@ -433,7 +446,7 @@ class Trainer:
         if print_info:
             logger.info(f"Saving checkpoint to {file_path}")
         if save_single_model:
-            torch.save(self.model_or_module.state_dict(), file_path)
+            torch.save(self.model_evaluate.state_dict(), file_path)
         else:
             torch.save(data, file_path)
 
@@ -507,6 +520,12 @@ class Trainer:
 
         # 8. 加载保存目录
         self.work_dir = checkpoint["work_dir"]
+
+        # 9. 加载ema 模型
+        if self.model_ema:
+            lambda_decay = self.model_ema.decay
+            self.model_ema = EMA(self.model_or_module, updates=self.cur_iter)
+            self.model_ema.decay = lambda_decay
 
         if path:
             logger.info(f"加载模型{path}成功")
