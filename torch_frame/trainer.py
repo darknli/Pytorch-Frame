@@ -291,14 +291,8 @@ class Trainer:
         .. Note::
             标准的学习率调节器是基于epoch的, 但torch_frame框架是基于iter的, 所以它在每次iter之后都会调用
         """
-
-        ######################
-        # 1. 加载一个batch的数据 #
-        ######################
-        # 这里读取生成器的数据而非data_loader这是为了计算加载数据的耗时
-
         #####################
-        # 2. 计算loss #
+        # 1. 计算loss #
         #####################
         if self._enable_amp:
             with autocast():
@@ -327,7 +321,7 @@ class Trainer:
             loss_info["total_loss"] = losses
 
         ##########################
-        # 3. 计算梯度 #
+        # 2. 计算梯度 #
         ##########################
         self.optimizer.zero_grad()
         if self._enable_amp:
@@ -340,7 +334,7 @@ class Trainer:
             clip_grad_norm_(self.model.parameters(), self._clip_grad_norm)
 
         ##############################
-        # 4. 更新模型参数 #
+        # 3. 更新模型参数 #
         ##############################
         if self._enable_amp:
             self._grad_scaler.step(self.optimizer)
@@ -351,7 +345,7 @@ class Trainer:
             self.model_ema.update(self.model)
 
         ###########################
-        # 5. 调整学习率 #
+        # 4. 调整学习率 #
         ###########################
         self.lr_scheduler.step()
 

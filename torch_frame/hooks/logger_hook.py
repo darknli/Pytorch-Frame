@@ -19,7 +19,7 @@ class LoggerHook(HookBase):
         Parameters
         ----------
         period : int, default 50. 写入的周期
-        tb_log_dir : str, default "log_dir".tensorboard的根目录
+        tb_log_dir : str, default None. 如果没有特别指定的话，日志默认写到trainer设置的目录
         modes : list, default None
             通过指标的关键字来判定输出哪类数据
         kwargs : torch.utils.tensorboard.SummaryWriter的其他参数
