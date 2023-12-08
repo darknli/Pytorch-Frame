@@ -2,6 +2,7 @@ from .trainer import Trainer, nn, optim, Optional, List, HookBase, setup_logger,
 import os
 from torch.utils.data import DataLoader, Dataset, DistributedSampler, RandomSampler
 from .utils.dist_utils import *
+import warnings
 
 
 class DDPTrainer(Trainer):
@@ -67,6 +68,7 @@ class DDPTrainer(Trainer):
                  ema_decay: float = 0.9999,
                  create_new_dir: Optional[str] = "time_s"
                  ):
+        warnings.warn("为了更快训练，建议使用AccelerateTrainer来替代这个trainer", DeprecationWarning)
         self.use_dist = is_dist_avail_and_initialized()
         if self.use_dist:
             num_tasks = get_world_size()

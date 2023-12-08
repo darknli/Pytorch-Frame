@@ -37,6 +37,8 @@
   * 优化体验
 * v1.7.3
   * 加入ema模块
+* v1.7.4
+  * 加入了新的高效trainer: AccelerateTrainer
 
 # 安装
 pip install torch-frame
@@ -128,4 +130,25 @@ if __name__ == "__name__":
     
 ```
 
+# Accelerate加速训练
+基于accelerate库的trainer做训练，支持多卡。相对于普通的Trainer只需要做少量修改即可运行
+```commandline
+# 创建dataset和dataloader
+from torch.util.dataset import Dataset, DataLoader
+from torch_frame import AccelerateTrainer
 
+train_dataset = Dataset(...)
+train_dataloader = DataLoader(...)
+
+# 创建网络相关对象
+model = get_model(conf)
+optimizer = Adam(model.parameters(), lr)
+lr_scheduler = "constant"
+
+# 创建hooker，承载验证集部分和评估保存模型的任务
+hooks = [EvalHook(...), LoggerHook(...)]
+
+# 创建Trainer对象并开始训练，支持混合精度fp16/bp16
+trainer = Trainer(model, optimizer, lr_scheduler, train_dataloader, num_epochs, "保存路径", mixed_precision="fp16", hooks=hooks)
+traine.train()  # 开始正式训练
+```

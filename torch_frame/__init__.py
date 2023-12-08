@@ -4,6 +4,7 @@ from .lr_scheduler import LRWarmupScheduler
 from .utils import HistoryBuffer, misc, metric
 from .trainer import Trainer, MetricStorage
 from .ddp_trainer import DDPTrainer
+from .accelerate_trainer import AccelerateTrainer
 
 
 #  关闭opencv的多线程防止pytorch死锁

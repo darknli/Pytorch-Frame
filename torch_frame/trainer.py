@@ -433,7 +433,7 @@ class Trainer:
         hook_states = {h.class_name: h.state_dict() for h in self._hooks if h.checkpointable}
         if hook_states:
             data["hooks"] = hook_states
-        if self._enable_amp:
+        if hasattr(self, "_enable_amp") and self._enable_amp:
             data["grad_scaler"] = self._grad_scaler.state_dict()
 
         file_path = osp.join(self.ckpt_dir, file_name)
@@ -484,7 +484,7 @@ class Trainer:
         # 5. 加载 grad scaler
         consistent_amp = not (self._enable_amp ^ ("grad_scaler" in checkpoint))
         assert consistent_amp, "Found inconsistent AMP training setting when loading checkpoint."
-        if self._enable_amp:
+        if hasattr(self, "_enable_amp") and self._enable_amp:
             self._grad_scaler.load_state_dict(checkpoint["grad_scaler"])
 
         # 6. 加载 模型
