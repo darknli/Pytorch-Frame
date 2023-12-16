@@ -136,6 +136,14 @@ class Trainer:
         else:
             self.register_hooks(hooks)
 
+    @staticmethod
+    def log_param(*args, **kwargs):
+        """打印信息到logger上"""
+        for v in args:
+            logger.info(v)
+        for k, v in kwargs.items():
+            logger.info(f"k: {v}")
+
     @property
     def lr(self) -> float:
         return self.optimizer.param_groups[0]["lr"]
