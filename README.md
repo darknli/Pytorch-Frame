@@ -39,6 +39,9 @@
   * 加入ema模块
 * v1.7.4
   * 加入了新的高效trainer: AccelerateTrainer
+* v1.7.5
+  * AccelerateTrainer新添梯度累计能力：参数gradient_accumulation_steps
+  * 修复AccelerateTrainer多卡训练时重复打印log的问题
 
 # 安装
 pip install torch-frame
