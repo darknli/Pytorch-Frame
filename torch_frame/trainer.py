@@ -121,28 +121,31 @@ class Trainer:
         self._clip_grad_norm = clip_grad_norm
         if not torch.cuda.is_available():
             enable_amp = False
-            logger.warning("torch环境无法使用cuda, AMP无法使用")
+            self.logger_print("torch环境无法使用cuda, AMP无法使用", logger.warning)
         self._enable_amp = enable_amp
 
         if self._enable_amp:
-            logger.info("自动混合精度 (AMP) 训练")
+            self.logger_print("自动混合精度 (AMP) 训练")
             self._grad_scaler = GradScaler()
 
         self.rank = get_rank()
         if hooks is None:
             self.register_hooks(self._build_default_hooks())
         elif self.rank != 0:
-            logger.warning(f"{self.rank}号卡也被传入了hook, 将被自动忽略")
+            self.logger_print(f"{self.rank}号卡也被传入了hook, 将被自动忽略", logger.warning)
         else:
             self.register_hooks(hooks)
 
-    @staticmethod
-    def log_param(*args, **kwargs):
+        self.info_params = []
+
+    def log_param(self, *args, **kwargs):
         """打印信息到logger上"""
-        for v in args:
-            logger.info(v)
-        for k, v in kwargs.items():
-            logger.info(f"k: {v}")
+        inforamtions_tuple = "\n".join(args)
+        inforamtions_dict = "\n".join([f"{k}: {v}" for k, v in kwargs.items()])
+        if len(inforamtions_tuple) > 0:
+            self.info_params.append(inforamtions_tuple)
+        if len(inforamtions_dict) > 0:
+            self.info_params.append(inforamtions_dict)
 
     @property
     def lr(self) -> float:
@@ -230,11 +233,13 @@ class Trainer:
         os.makedirs(self.ckpt_dir, exist_ok=True)
         if self.start_epoch == 0:
             split_line = "-" * 50
-            logger.info(
+            self.logger_print(
                 f"\n{split_line}\n"
                 f"Work directory: {self.work_dir}\n"
                 f"{split_line}"
             )
+            if len(self.info_params) > 0:
+                self.logger_print("\n"+"\n".join(self.info_params))
 
     def register_hooks(self, hooks: List[Optional[HookBase]]) -> None:
         """
@@ -258,7 +263,7 @@ class Trainer:
                 self._hooks.insert(len(self._hooks) - 1, h)
             else:
                 self._hooks.append(h)
-        logger.warning(f"Registered default hooks: {self.registered_hook_names}")
+        self.logger_print(f"Registered default hooks: {self.registered_hook_names}", logger.warning)
 
     def _call_hooks(self, stage: str) -> None:
         for h in self._hooks:
@@ -399,7 +404,7 @@ class Trainer:
         file_log_level : int, default 2.
             输出到文件里的log等级, 其他方面同console_log_level参数
         """
-        logger.info(f"开始从第{self.start_epoch}epoch训练")
+        self.logger_print(f"开始从第{self.start_epoch}epoch训练")
         self._prepare_for_training(console_log_level, file_log_level)
         self._call_hooks("before_train")
         for self.epoch in range(self.start_epoch, self.max_epochs):
@@ -446,7 +451,7 @@ class Trainer:
 
         file_path = osp.join(self.ckpt_dir, file_name)
         if print_info:
-            logger.info(f"Saving checkpoint to {file_path}")
+            self.logger_print(f"Saving checkpoint to {file_path}")
         if save_single_model:
             torch.save(self.model_evaluate.state_dict(), file_path)
         else:
@@ -467,12 +472,14 @@ class Trainer:
         if path is None:
             incompatible = self.model_or_module.load_state_dict(checkpoint, strict=False)
             if incompatible.missing_keys:
-                logger.warning("Encounter missing keys when loading model weights:\n"
-                               f"{incompatible.missing_keys}")
+                self.logger_print("Encounter missing keys when loading model weights:\n"
+                                  f"{incompatible.missing_keys}",
+                                  logger.warning)
             if incompatible.unexpected_keys:
-                logger.warning("Encounter unexpected keys when loading model weights:\n"
-                               f"{incompatible.unexpected_keys}")
-            logger.info("只加载模型本身...")
+                self.logger_print("Encounter unexpected keys when loading model weights:\n"
+                                  f"{incompatible.unexpected_keys}",
+                                  logger.warning)
+            self.logger_print("只加载模型本身...")
             return
 
         checkpoint = torch.load(path, map_location="cpu")
@@ -498,11 +505,13 @@ class Trainer:
         # 6. 加载 模型
         incompatible = self.model_or_module.load_state_dict(checkpoint["model"], strict=False)
         if incompatible.missing_keys:
-            logger.warning("Encounter missing keys when loading model weights:\n"
-                           f"{incompatible.missing_keys}")
+            self.logger_print("Encounter missing keys when loading model weights:\n"
+                              f"{incompatible.missing_keys}",
+                              logger.warning)
         if incompatible.unexpected_keys:
-            logger.warning("Encounter unexpected keys when loading model weights:\n"
-                           f"{incompatible.unexpected_keys}")
+            self.logger_print("Encounter unexpected keys when loading model weights:\n"
+                              f"{incompatible.unexpected_keys}",
+                              logger.warning)
 
         # 7. 加载 hooks
         hook_states = checkpoint.get("hooks", {})
@@ -510,9 +519,11 @@ class Trainer:
         missing_keys = [name for name in hook_names if name not in hook_states]
         unexpected_keys = [key for key in hook_states if key not in hook_names]
         if missing_keys:
-            logger.warning(f"Encounter missing keys when loading hook state dict:\n{missing_keys}")
+            self.logger_print(f"Encounter missing keys when loading hook state dict:\n{missing_keys}",
+                              logger.warning)
         if unexpected_keys:
-            logger.warning(f"Encounter unexpected keys when loading hook state dict:\n{unexpected_keys}")
+            self.logger_print(f"Encounter unexpected keys when loading hook state dict:\n{unexpected_keys}",
+                              logger.warning)
 
         for key, value in hook_states.items():
             for h in self._hooks:
@@ -530,7 +541,18 @@ class Trainer:
             self.model_ema.decay = lambda_decay
 
         if path:
-            logger.info(f"加载模型{path}成功")
+            self.logger_print(f"加载模型{path}成功")
+
+    def check_main(self):
+        """判断是否为主进程, 对于单卡来说永远是True, 对于多卡来说只有一个主进程"""
+        flag = get_rank() == 0
+        return flag
+
+    def logger_print(self, string: str, function=logger.info):
+        """打印logger信息"""
+        if self.check_main():
+            function(string)
+
 
 
 class MetricStorage(dict):

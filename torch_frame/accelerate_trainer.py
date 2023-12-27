@@ -74,7 +74,7 @@ class AccelerateTrainer(Trainer):
         if isinstance(lr_scheduler, str):
             from diffusers.optimization import get_scheduler
             if warmup_method is not None:
-                warnings.warn("当`lr_scheduler`输入str类型时, `warmup_method`参数失效")
+                self.logger_print("当`lr_scheduler`输入str类型时, `warmup_method`参数失效", warnings.warn)
             max_train_steps = max_epochs * len(data_loader)
             self.lr_scheduler = get_scheduler(
                 lr_scheduler,
@@ -103,14 +103,13 @@ class AccelerateTrainer(Trainer):
                 hooks = self._build_default_hooks()
             self.register_hooks(hooks)
 
-        self._prepared_status = False
+        self.info_params = []
 
     def prepare_model(self):
         """如果有多个模型的话可以在这里重写方法"""
         self.model, self.optimizer, self.data_loader, self.lr_scheduler = self.accelerator.prepare(
             self.model, self.optimizer, self.data_loader, self.lr_scheduler
         )
-        self._prepared_status = True
 
     def _prepare_for_training(self,
                               console_log_level: int = 2,
@@ -198,3 +197,7 @@ class AccelerateTrainer(Trainer):
         if self.model.__class__.__name__ == "DistributedDataParallel":
             return self.accelerator.unwrap_model(self.model)
         return self.model
+
+    def check_main(self):
+        """判断是否为主进程, 对于单卡来说永远是True, 对于多卡来说只有一个主进程"""
+        return self.accelerator.is_main_process
