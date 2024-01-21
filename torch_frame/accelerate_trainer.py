@@ -198,6 +198,15 @@ class AccelerateTrainer(Trainer):
             return self.accelerator.unwrap_model(self.model)
         return self.model
 
+    @property
+    def clip_grad_params(self) -> list:
+        if not hasattr(self, "_clip_grad_params"):
+            params = []
+            for p in self.optimizer.optimizer.param_groups:
+                params += p["params"]
+            setattr(self, "_clip_grad_params", params)
+        return getattr(self, "_clip_grad_params")
+
     def check_main(self):
         """判断是否为主进程, 对于单卡来说永远是True, 对于多卡来说只有一个主进程"""
         return self.accelerator.is_main_process

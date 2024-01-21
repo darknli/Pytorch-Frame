@@ -170,6 +170,15 @@ class Trainer:
         return self.start_epoch * self.epoch_len
 
     @property
+    def clip_grad_params(self) -> list:
+        if not hasattr(self, "_clip_grad_params"):
+            params = []
+            for p in self.optimizer.param_groups:
+                params += p["params"]
+            setattr(self, "_clip_grad_params", params)
+        return getattr(self, "_clip_grad_params")
+
+    @property
     def ckpt_dir(self) -> str:
         return osp.join(self.work_dir, "checkpoints")
 
@@ -230,8 +239,9 @@ class Trainer:
         setup_logger("torch_frame", output=self.log_file,
                      console_log_level=console_log_level, file_log_level=file_log_level)
 
-        os.makedirs(self.ckpt_dir, exist_ok=True)
         if self.start_epoch == 0:
+            if self.check_main():
+                os.makedirs(self.ckpt_dir, exist_ok=True)
             split_line = "-" * 50
             self.logger_print(
                 f"\n{split_line}\n"
