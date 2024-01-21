@@ -42,6 +42,9 @@
 * v1.7.5
   * AccelerateTrainer新添梯度累计能力：参数gradient_accumulation_steps
   * 修复AccelerateTrainer多卡训练时重复打印log的问题
+* v1.7.6
+  * 修复多卡训练偶尔会重复创建日志目录的问题
+  * 优化grad clip代码
 
 # 安装
 pip install torch-frame
