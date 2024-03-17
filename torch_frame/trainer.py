@@ -354,7 +354,7 @@ class Trainer:
         if self._clip_grad_norm > 0:
             if self._enable_amp:
                 self._grad_scaler.unscale_(self.optimizer)
-            clip_grad_norm_(self.model.parameters(), self._clip_grad_norm)
+            clip_grad_norm_(self.clip_grad_params, self._clip_grad_norm)
 
         ##############################
         # 3. 更新模型参数 #
