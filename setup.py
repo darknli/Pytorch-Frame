@@ -33,7 +33,8 @@ setuptools.setup(
         "accelerate>=0.16.0",
         "diffusers",
         "pyyaml",
-        "tqdm"
+        "tqdm",
+        "tensorboard"
     ],
     python_requires='>=3.6',
 )
