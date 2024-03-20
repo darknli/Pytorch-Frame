@@ -35,9 +35,14 @@ class CheckpointerHook(HookBase):
         """
         self._period = period
         assert max_to_keep is None or max_to_keep > 0
+        if max_to_keep is None and save_metric is None and not save_last:
+            raise ValueError("创建了无效的`CheckpointerHook`对象，因为不会保存任何模型")
         self._max_to_keep = max_to_keep
         if save_metric is None:
-            logger.warning("没有指定保存模型的指标，因此每period都将保存模型")
+            if max_to_keep is None:
+                logger.warning("没有指定保存模型的指标，不会保存best模型")
+            else:
+                logger.warning("没有指定保存模型的指标，因此每period都将保存模型")
         self.save_metric = save_metric
         if max_first:
             self.cur_best = float("-inf")
@@ -62,11 +67,10 @@ class CheckpointerHook(HookBase):
         if self.save_metric is not None:
             if not self.is_better(self.trainer.metric_storage[self.save_metric]):
                 return
-            else:
-                self.cur_best = self.trainer.metric_storage[self.save_metric].avg
-                logger.info(f"{self.save_metric} update to {round(self.cur_best, 4)}")
+            self.cur_best = self.trainer.metric_storage[self.save_metric].avg
+            logger.info(f"{self.save_metric} update to {round(self.cur_best, 4)}")
+            self.trainer.save_checkpoint("best.pth")
 
-        self.trainer.save_checkpoint("best.pth")
         if self._max_to_keep is not None and self._max_to_keep >= 1:
             epoch = self.trainer.epoch  # ranged in [0, max_epochs - 1]
             checkpoint_name = f"epoch_{epoch}.pth"
