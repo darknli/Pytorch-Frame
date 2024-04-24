@@ -417,7 +417,7 @@ class Trainer:
         self.logger_print(f"开始从第{self.start_epoch}epoch训练")
         self._prepare_for_training(console_log_level, file_log_level)
         self._call_hooks("before_train")
-        for self.epoch in range(self.start_epoch, self.max_epochs):
+        for self.epoch in range(self.start_epoch + 1, self.max_epochs + 1):
             self._call_hooks("before_epoch")
             self._train_one_epoch()
             self._call_hooks("after_epoch")
