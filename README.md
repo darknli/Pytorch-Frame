@@ -1,50 +1,6 @@
 # Pytorch Frame
 原代码来自https://github.com/machineko/coreml_torch_utils
-，此为改版
-# 版本更新
-## v1.6 相关更新
-* v1.6.3 
-  * 添加了EvalTotalHook，在所有数据跑完之后才开始计算指标。
-  * 添加了metric模块，并增加了目标检测评估指标MAP的metric。
-  * 调整了代码层级结构，使其扩展性更强。
-* v1.6.2
-  * 完善了training时每个step模型返回的类型，支持：
-    * torch.Tensor，返回的是需要backward的tensor，即为total loss
-    * dict，返回的是各路loss头，需要注意的是，这种不应加入total loss，因为torch-frame会自动合并其结果给出total loss
-    * tuple， 二元组，分别为
-      * backward_params：跟梯度回传、模型参数更新有关，可选torch.Tensor或dict，参考前两种
-      * metric_params：dict，纯指标参数，不参与梯度回传
-* v1.6.3
-  * 调整代码结构，增强通用性
-  * 加入多卡计算验证集指标的hook
-* v1.6.4
-  * 加入目标检测map的metric和相应的hook
-* v1.6.5
-  * 修复EvalTotalHook bug
-* v1.6.6
-  * 加入gpu型号性能评估的函数gpu_cnn_speed
-* v1.6.7
-  * 优化打印日志体验
-* v1.6.8
-  * 修复个别环境colors模块调用崩溃的问题
-## v1.7 相关更新
-* v1.7.0
-  * 取消iter机制，减少每个epoch开始之前的卡顿
-  * 加入高效获取数据的模块，如InfiniteDataLoader
-* v1.7.1
-  * 修复checkpoint_hook在win系统下保存参数崩溃的问题
-* v1.7.2
-  * 优化体验
-* v1.7.3
-  * 加入ema模块
-* v1.7.4
-  * 加入了新的高效trainer: AccelerateTrainer
-* v1.7.5
-  * AccelerateTrainer新添梯度累计能力：参数gradient_accumulation_steps
-  * 修复AccelerateTrainer多卡训练时重复打印log的问题
-* v1.7.6
-  * 修复多卡训练偶尔会重复创建日志目录的问题
-  * 优化grad clip代码
+，此为改版。在原版基础之上加入了大量功能
 
 # 安装
 pip install torch-frame
@@ -140,21 +96,22 @@ if __name__ == "__name__":
 基于accelerate库的trainer做训练，支持多卡。相对于普通的Trainer只需要做少量修改即可运行
 ```commandline
 # 创建dataset和dataloader
-from torch.util.dataset import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader
 from torch_frame import AccelerateTrainer
+from torch.optim import Adam
 
 train_dataset = Dataset(...)
 train_dataloader = DataLoader(...)
 
 # 创建网络相关对象
-model = get_model(conf)
+model = get_model(config)
 optimizer = Adam(model.parameters(), lr)
-lr_scheduler = "constant"
+lr_scheduler = "constant"  # 这里建议用字符串而不是类似MultiStepLR的scheduler类，具体和diffusers一致
 
 # 创建hooker，承载验证集部分和评估保存模型的任务
 hooks = [EvalHook(...), LoggerHook(...)]
 
 # 创建Trainer对象并开始训练，支持混合精度fp16/bp16
-trainer = Trainer(model, optimizer, lr_scheduler, train_dataloader, num_epochs, "保存路径", mixed_precision="fp16", hooks=hooks)
-traine.train()  # 开始正式训练
+trainer = AccelerateTrainer(model, optimizer, lr_scheduler, train_dataloader, num_epochs, "保存路径", mixed_precision="fp16", hooks=hooks)
+trainer.train()  # 开始正式训练
 ```
