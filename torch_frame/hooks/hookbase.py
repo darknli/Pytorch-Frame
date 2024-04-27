@@ -77,7 +77,7 @@ class HookBase:
 
     # belows are some helper functions that are often used in hook
     def every_n_epochs(self, n: int) -> bool:
-        return (self.trainer.epoch + 1) % n == 0 if n > 0 else False
+        return self.trainer.epoch % n == 0 if n > 0 else False
 
     def every_n_iters(self, n: int) -> bool:
         return (self.trainer.iter + 1) % n == 0 if n > 0 else False
@@ -86,7 +86,7 @@ class HookBase:
         return (self.trainer.inner_iter + 1) % n == 0 if n > 0 else False
 
     def is_last_epoch(self) -> bool:
-        return self.trainer.epoch == self.trainer.max_epochs - 1
+        return self.trainer.epoch == self.trainer.max_epochs
 
     def is_last_iter(self) -> bool:
         return self.trainer.iter == self.trainer.max_iters - 1
