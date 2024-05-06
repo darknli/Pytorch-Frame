@@ -414,7 +414,7 @@ class Trainer:
         file_log_level : int, default 2.
             输出到文件里的log等级, 其他方面同console_log_level参数
         """
-        self.logger_print(f"开始从第{self.start_epoch}epoch训练")
+        self.logger_print(f"从第{self.start_epoch + 1}个epoch训练开始")
         self._prepare_for_training(console_log_level, file_log_level)
         self._call_hooks("before_train")
         for self.epoch in range(self.start_epoch + 1, self.max_epochs + 1):
