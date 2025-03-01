@@ -3,13 +3,16 @@
 ，此为改版。在原版基础之上加入了大量功能
 
 # 安装
-pip install torch-frame
+✅ pip方式不再维护：
+~~pip install torch-frame~~
 
+❌ 推荐使用pip install git+https://github.com/darknli/Pytorch-Frame.git
 # 单卡训练
-使用Trainer训练，例如下面伪代码
+使用Trainer训练，下面是代码示例（Trainer支持混合精度训练，可自行去Trainer类中翻阅）
 ```commandline
 # 创建dataset和dataloader
 from torch.util.dataset import Dataset, DataLoader
+from torch.optim.lr_scheduler import MultiStepLR
 from torch_frame import Trainer
 
 train_dataset = Dataset(...)
@@ -21,6 +24,7 @@ optimizer = Adam(model.parameters(), lr)
 lr_scheduler = MultiStepLR(optimizer, ...)
 
 # 创建hooker，承载验证集部分和评估保存模型的任务
+# 这里也可以不做定制化创建，走Trainer默认的hooks，这个时候只支持log和checkpoint latest保存
 hooks = [EvalHook(...), LoggerHook(...)]
 
 # 创建Trainer对象并开始训练
@@ -42,9 +46,10 @@ trainer.train(1, 1)
 ```
 
 # 多卡训练
-使用DDPTrainer训练，以multiprocessing的方式举例
+使用DDPTrainer训练，在单卡的基础上扩展了多卡训练的能力，以multiprocessing的方式举例
 ```commandline
 from torch.util.dataset import Dataset, DataLoader
+from torch.optim.lr_scheduler import MultiStepLR
 from torch_frame import DDPTrainer
 import torch.multiprocessing as mp
 import torch.distributed as dist
@@ -74,6 +79,7 @@ def main(cur_gpu, args):
     train_dataset = Dataset(...)
     train_params = dict(batch_size=32, ...)
     
+    # 这里的hooks和单卡同理
     if cur_gpu == 0:
         hooks = [EvalHook(...), LoggerHook(...)] 
     else:
@@ -93,7 +99,7 @@ if __name__ == "__name__":
 ```
 
 # Accelerate加速训练
-基于accelerate库的trainer做训练，支持多卡。相对于普通的Trainer只需要做少量修改即可运行
+基于accelerate库的trainer做训练，支持多卡，相对于上述两种训练，推荐下面这种训练方式。相对于普通的Trainer只需要做少量修改即可运行
 ```commandline
 # 创建dataset和dataloader
 from torch.utils.data import Dataset, DataLoader
