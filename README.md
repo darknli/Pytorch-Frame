@@ -3,10 +3,10 @@
 ，此为改版。在原版基础之上加入了大量功能
 
 # 安装
-✅ pip方式不再维护：
+❌ pip方式不再维护：
 ~~pip install torch-frame~~
 
-❌ 推荐使用pip install git+https://github.com/darknli/Pytorch-Frame.git
+✅ 推荐使用pip install git+https://github.com/darknli/Pytorch-Frame.git
 # 单卡训练
 使用Trainer训练，下面是代码示例（Trainer支持混合精度训练，可自行去Trainer类中翻阅）
 ```commandline
