@@ -1,17 +1,16 @@
 from accelerate import Accelerator
-from accelerate.optimizer import AcceleratedOptimizer
-from accelerate.utils import ProjectConfiguration, set_seed
+import time
+from accelerate.utils import ProjectConfiguration
 import warnings
 from torch import nn
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from typing import Optional, Union, List, Dict, Any
-from .trainer import Trainer, MetricStorage, EMA
-from .hooks import CheckpointerHook, HookBase, LoggerHook
+from .trainer import Trainer, MetricStorage, EMA, ProgressBar
+from .hooks import HookBase
 from .utils.misc import get_workspace
 from .lr_scheduler import LRWarmupScheduler
-from ._get_logger import logger
 
 
 class AccelerateTrainer(Trainer):
@@ -28,6 +27,7 @@ class AccelerateTrainer(Trainer):
          * "fp16"
          * "bf16", 30系及以后的卡型才能使用
     gradient_accumulation_steps: int, default 1. 梯度累计数，显存不够用又需要大batch的时候可以加大数值
+    hook_only_main_gpu: bool, default True. 多卡时是否只有主进程使用hooks（非主进程是空list）
     """
 
     def __init__(
@@ -47,6 +47,7 @@ class AccelerateTrainer(Trainer):
             use_ema: bool = False,
             ema_decay: float = 0.9999,
             gradient_accumulation_steps: int = 1,
+            hook_only_main_gpu: bool = True,
             create_new_dir: Optional[str] = "time_s"
     ):
         self.work_dir = get_workspace(work_dir, create_new_dir)
@@ -98,7 +99,7 @@ class AccelerateTrainer(Trainer):
         self._hooks: List[HookBase] = []
         self._clip_grad_norm = clip_grad_norm
 
-        if self.accelerator.is_main_process:
+        if not hook_only_main_gpu or self.accelerator.is_main_process:
             if hooks is None:
                 hooks = self._build_default_hooks()
             self.register_hooks(hooks)
@@ -131,6 +132,25 @@ class AccelerateTrainer(Trainer):
         """
         self.prepare_model()  # 此处和原版trainer不同!!!
         super()._prepare_for_training(console_log_level, file_log_level)
+
+    def _train_one_epoch(self) -> None:
+        """执行模型一个epoch的全部操作"""
+        self.accelerator.wait_for_everyone()
+        self.model.train()
+        self.pbar = ProgressBar(total=self.epoch_len, desc=f"epoch={self.epoch}", ascii=True)
+
+        start_time_data = time.perf_counter()
+        for self.inner_iter, batch in enumerate(self.data_loader):
+            start_time_iter = time.perf_counter()
+            data_time = start_time_iter - start_time_data
+            self._call_hooks("before_iter")
+            show_info = self.train_one_iter(batch)
+            self._call_hooks("after_iter")
+            self._update_iter_metrics(show_info, data_time, time.perf_counter() - start_time_data, self.lr)
+            self.pbar.update(1)
+            start_time_data = time.perf_counter()
+        self.pbar.close()
+        del self.pbar
 
     def train_one_iter(self, batch) -> dict:
         """
