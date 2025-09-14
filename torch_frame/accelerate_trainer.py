@@ -28,6 +28,7 @@ class AccelerateTrainer(Trainer):
          * "bf16", 30系及以后的卡型才能使用
     gradient_accumulation_steps: int, default 1. 梯度累计数，显存不够用又需要大batch的时候可以加大数值
     hook_only_main_gpu: bool, default True. 多卡时是否只有主进程使用hooks（非主进程是空list）
+    accelerator: Accelerator, default None. 如果需要可以自定义accelerator然后传进Trainer，比如使用deepspeed-ZeRo3训练
     """
 
     def __init__(
@@ -48,15 +49,21 @@ class AccelerateTrainer(Trainer):
             ema_decay: float = 0.9999,
             gradient_accumulation_steps: int = 1,
             hook_only_main_gpu: bool = True,
-            create_new_dir: Optional[str] = "time_s"
+            create_new_dir: Optional[str] = "time_s",
+            accelerator: Accelerator = None,
     ):
         self.work_dir = get_workspace(work_dir, create_new_dir)
-        accelerator_project_config = ProjectConfiguration(project_dir=self.work_dir, logging_dir=self.work_dir)
-        self.accelerator = Accelerator(
-            mixed_precision=mixed_precision,
-            project_config=accelerator_project_config,
-            gradient_accumulation_steps=gradient_accumulation_steps
-        )
+        if accelerator is None:
+            accelerator_project_config = ProjectConfiguration(project_dir=self.work_dir, logging_dir=self.work_dir)
+            self.accelerator = Accelerator(
+                mixed_precision=mixed_precision,
+                project_config=accelerator_project_config,
+                gradient_accumulation_steps=gradient_accumulation_steps
+            )
+        elif isinstance(accelerator, Accelerator):
+            self.accelerator = accelerator
+        else:
+            raise ValueError("accelerator传入类型不对!")
 
         self.weight_dtype = torch.float32
         if self.accelerator.mixed_precision == "fp16":
